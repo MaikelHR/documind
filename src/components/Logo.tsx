@@ -1,5 +1,5 @@
-/* DocuMind — brand mark: two citation-bracket strokes around a vertical
-   "answer" line with a dot on top — "an answer between cited sources". */
+/* DocuMind - brand mark: two citation-bracket strokes around a vertical
+   "answer" line with a dot on top - "an answer between cited sources". */
 
 import type { SVGProps } from 'react';
 

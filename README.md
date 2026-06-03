@@ -1,6 +1,6 @@
-# DocuMind — AI Document Assistant with Source Citations
+# DocuMind - AI Document Assistant with Source Citations
 
-> Ask questions about your documents and get answers that **show their work** — every
+> Ask questions about your documents and get answers that **show their work** - every
 > claim traced to the exact document and page it came from.
 
 [![React](https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white)](https://react.dev)
@@ -12,7 +12,7 @@
 
 > ⚠️ **This is a front-end portfolio demo.** The answers, documents, retrieval and
 > "streaming" are **simulated client-side** (no real LLM or backend yet). The focus is
-> UI craft, architecture and a clean, *backend-ready* design — see
+> UI craft, architecture and a clean, *backend-ready* design - see
 > [Wiring a real backend](#wiring-a-real-backend-rag).
 
 ---
@@ -27,7 +27,7 @@ primary / English)**, **light + dark** modes, and **four** selectable color dire
 ## Screenshots
 
 _Add three PNGs to `docs/` (workspace, source drawer, landing) and uncomment the table
-below. The live deploy is the best showcase — keep the link at the top up to date._
+below. The live deploy is the best showcase - keep the link at the top up to date._
 
 <!--
 | Workspace (chat + citations) | Source drawer | Landing |
@@ -37,29 +37,29 @@ below. The live deploy is the best showcase — keep the link at the top up to d
 
 ## Features
 
-- **Grounded answers with citations** — inline `[n]` markers, a 2-column source grid, and a
+- **Grounded answers with citations** - inline `[n]` markers, a 2-column source grid, and a
   hover link between a marker and its source card (shared highlight state per message).
-- **Source drawer** — slides in over the chat, renders the original page, wraps the cited
+- **Source drawer** - slides in over the chat, renders the original page, wraps the cited
   snippet in `<mark>`, flashes it, and auto-scrolls it into view.
-- **Streaming UX** — three phases (retrieval → token-by-token streaming → done) with a
+- **Streaming UX** - three phases (retrieval → token-by-token streaming → done) with a
   blinking cursor and a Stop control. Designed to swap 1:1 for a real streamed completion.
-- **8 themes** — 4 color directions × light/dark, implemented as CSS variables driven by
+- **8 themes** - 4 color directions × light/dark, implemented as CSS variables driven by
   `data-direction` / `data-mode` on `<html>`, persisted to `localStorage` (+ no-flash boot).
-- **Bilingual** — UI chrome via `react-i18next`; sample *data* (doc names, page content,
+- **Bilingual** - UI chrome via `react-i18next`; sample *data* (doc names, page content,
   snippets) resolved with a small `pick()` helper. Citation snippets are exact substrings of
   the same-language page text, so the highlight matches in both languages.
-- **Document management (mock)** — upload (with an indexing animation), delete, search,
+- **Document management (mock)** - upload (with an indexing animation), delete, search,
   empty state, and "load a sample workspace".
-- **Responsive** — two-pane ≥ 940px; off-canvas sidebar + hamburger below; further
+- **Responsive** - two-pane ≥ 940px; off-canvas sidebar + hamburger below; further
   compaction below 600px.
-- **Accessible & polished** — `:focus-visible` rings, ARIA tablists, and
+- **Accessible & polished** - `:focus-visible` rings, ARIA tablists, and
   `prefers-reduced-motion` support.
 
 ## Tech stack
 
 - **Vite + React 19 + TypeScript** (strict)
-- **Tailwind CSS v3** — color tokens mapped to per-theme CSS variables
-- **react-i18next** — single-brace interpolation to reuse the source strings verbatim
+- **Tailwind CSS v3** - color tokens mapped to per-theme CSS variables
+- **react-i18next** - single-brace interpolation to reuse the source strings verbatim
 - **lucide-react** for icons + a hand-authored brand `Logo`
 
 ## Architecture notes
@@ -71,7 +71,7 @@ below. The live deploy is the best showcase — keep the link at the top up to d
   `[[n]]`) into ordered segments, then into *units* (word/whitespace tokens; each `[[n]]`
   atomic) so citations land in place while text streams in word-by-word.
 - **State.** Local component state + two contexts (i18n, theme via `<html>` attributes). The
-  chat is a small state machine over message phases — no Redux needed.
+  chat is a small state machine over message phases - no Redux needed.
 - **Discriminated unions** model `Message` (`user | ai`) for safe rendering of each phase.
 
 ```
@@ -99,7 +99,7 @@ Requires Node 20+.
 
 ## Deploy (Vercel)
 
-This is a static SPA — Vercel auto-detects Vite (build `npm run build`, output `dist/`).
+This is a static SPA - Vercel auto-detects Vite (build `npm run build`, output `dist/`).
 
 ```bash
 npm i -g vercel
@@ -116,7 +116,7 @@ retrieval-augmented pipeline without touching the UI:
 
 | Mock today | Replace with |
 | --- | --- |
-| `send()` in `App.tsx` (setTimeout/setInterval) | `fetch('/api/chat')` streamed over **SSE/`ReadableStream`** — keep the same `thinking → streaming → done` phases |
+| `send()` in `App.tsx` (setTimeout/setInterval) | `fetch('/api/chat')` streamed over **SSE/`ReadableStream`** - keep the same `thinking → streaming → done` phases |
 | `pickAnswer()` + arrays in `data/sample.ts` | Real **retrieval + generation**: top-k hybrid search → LLM (e.g. Claude) constrained to cite only retrieved passages |
 | `addDoc()` indexing animation | `POST /api/documents`: parse pages → chunk → embed → upsert to a vector store (pgvector / Qdrant / Pinecone) |
 | Citation snippets in sample data | Citations returned by the model (`docId`, `page`, char offset) |

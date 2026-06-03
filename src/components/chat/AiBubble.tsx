@@ -1,4 +1,4 @@
-/* DocuMind — AiBubble: renders streamed answer units (bold/italic/citation)
+/* DocuMind - AiBubble: renders streamed answer units (bold/italic/citation)
    up to `count`, with a blinking accent cursor while streaming. */
 
 import type { ReactNode } from 'react';

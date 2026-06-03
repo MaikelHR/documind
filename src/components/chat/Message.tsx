@@ -1,4 +1,4 @@
-/* DocuMind — Message: a user bubble, or an AI message that moves through
+/* DocuMind - Message: a user bubble, or an AI message that moves through
    thinking -> streaming -> done (Retrieval, AiBubble, Sources, AnswerActions). */
 
 import { useState } from 'react';

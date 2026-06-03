@@ -1,4 +1,4 @@
-/* DocuMind — tiny inline markup parser.
+/* DocuMind - tiny inline markup parser.
    Syntax: **bold**, *italic*, and [[n]] citation markers.
    - parseMarkup -> ordered segments
    - buildUnits  -> streaming units (word/whitespace tokens; each [[n]] atomic)

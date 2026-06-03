@@ -1,4 +1,4 @@
-/* DocuMind — shared domain types */
+/* DocuMind - shared domain types */
 
 export type Direction = 'slate' | 'verdigris' | 'ember' | 'cobalt';
 export type Mode = 'dark' | 'light';

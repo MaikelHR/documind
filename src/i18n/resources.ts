@@ -1,4 +1,4 @@
-/* DocuMind — i18n resource bundles (es primary, en secondary).
+/* DocuMind - i18n resource bundles (es primary, en secondary).
    Ported verbatim from the handoff `i18n.jsx`. Placeholders use single
    braces ({q}, {n}, …); i18next is configured for single-brace interpolation
    in config.ts so these strings can be reused as-is. */
@@ -11,7 +11,7 @@ export const es = {
   noMatch: 'Ningún documento coincide con “{q}”.',
   pages: 'páginas', note: 'Nota', indexed: 'Indexado', indexing: 'Indexando',
   dzDrag: 'Suelta para subir', dzIdle: 'Arrastra archivos aquí, o ', dzBrowse: 'explora',
-  dzFormats: 'PDF · DOCX · MD · TXT — hasta 40MB',
+  dzFormats: 'PDF · DOCX · MD · TXT - hasta 40MB',
   /* composer */
   askPh: 'Pregunta lo que sea sobre tus documentos…', answering: 'DocuMind está respondiendo…',
   groundedAcross: 'Fundamentado en {n} {s}', sourceN: 'fuente', sourcesN: 'fuentes',
@@ -19,7 +19,7 @@ export const es = {
   /* empty state */
   emptyEye: 'Espacio · 0 fuentes',
   emptyH1a: 'Convierte documentos en ', emptyH1em: 'respuestas en las que confiar.',
-  emptySub: 'Agrega un archivo y DocuMind lo lee de principio a fin, indexa cada página y responde tus preguntas —con cada afirmación ligada al pasaje exacto del que proviene.',
+  emptySub: 'Agrega un archivo y DocuMind lo lee de principio a fin, indexa cada página y responde tus preguntas -con cada afirmación ligada al pasaje exacto del que proviene.',
   noFiles: '¿Sin archivos a la mano?', loadSample: 'Cargar un espacio de ejemplo',
   /* chat header */
   newWorkspace: 'Nuevo espacio', workspaceTitle: 'Revisión trimestral y políticas',
@@ -42,11 +42,11 @@ export const es = {
   /* landing */
   lpTag: 'Inteligencia documental, fundamentada',
   lpH1a: 'Pregunta a tus documentos.', lpH1b: 'Obtén respuestas que ', lpH1em: 'muestran su trabajo.',
-  lpSub: 'DocuMind lee tus PDFs, especificaciones y notas, y responde en lenguaje claro —con cada afirmación rastreada hasta la página exacta de la que proviene.',
+  lpSub: 'DocuMind lee tus PDFs, especificaciones y notas, y responde en lenguaje claro -con cada afirmación rastreada hasta la página exacta de la que proviene.',
   lpOpen: 'Abrir el espacio de trabajo', lpSee: 'Ver una respuesta en vivo',
   lpM1: 'Formatos de archivo', lpM2: 'Al primer token', lpM3: 'Afirmaciones citadas',
   lpHowEye: 'Cómo funciona', lpHowH1: 'De la carga a una respuesta citada', lpHowH2: 'en tres pasos deliberados.',
-  lpS1t: 'Agrega tus documentos', lpS1p: 'Suelta PDFs, especificaciones y notas en Markdown. Cada página se procesa e indexa para recuperación —sin configuración, sin esquemas.',
+  lpS1t: 'Agrega tus documentos', lpS1p: 'Suelta PDFs, especificaciones y notas en Markdown. Cada página se procesa e indexa para recuperación -sin configuración, sin esquemas.',
   lpS2t: 'Pregunta en lenguaje natural', lpS2p: 'Consulta toda tu biblioteca a la vez. La búsqueda híbrida trae los pasajes que de verdad responden, no solo coincidencias de palabras.',
   lpS3t: 'Verifica cada afirmación', lpS3p: 'Cada enunciado lleva una fuente. Un clic abre el documento original con el pasaje exacto resaltado.',
   lpFootNote: 'Un concepto de portafolio · construido con React, TypeScript y Tailwind',
@@ -62,13 +62,13 @@ export const en: typeof es = {
   noMatch: 'No documents match “{q}”.',
   pages: 'pages', note: 'Note', indexed: 'Indexed', indexing: 'Indexing',
   dzDrag: 'Release to upload', dzIdle: 'Drag files here, or ', dzBrowse: 'browse',
-  dzFormats: 'PDF · DOCX · MD · TXT — up to 40MB',
+  dzFormats: 'PDF · DOCX · MD · TXT - up to 40MB',
   askPh: 'Ask anything about your documents…', answering: 'DocuMind is answering…',
   groundedAcross: 'Grounded across {n} {s}', sourceN: 'source', sourcesN: 'sources',
   send: 'send', newLine: 'new line', tryLabel: 'Try',
   emptyEye: 'Workspace · 0 sources',
   emptyH1a: 'Turn documents into ', emptyH1em: 'answers you can trust.',
-  emptySub: 'Add a file and DocuMind reads it end to end, indexes every page, and answers your questions — with each claim traced to the exact passage it came from.',
+  emptySub: 'Add a file and DocuMind reads it end to end, indexes every page, and answers your questions - with each claim traced to the exact passage it came from.',
   noFiles: 'No files handy?', loadSample: 'Load a sample workspace',
   newWorkspace: 'New workspace', workspaceTitle: 'Quarterly review & policy Q&A',
   sourcesIndexed: '{n} {s} {ind}', indexedF: 'indexed', indexedP: 'indexed',
@@ -84,11 +84,11 @@ export const en: typeof es = {
   verified: 'Passage verified in source', pp: 'pp.',
   lpTag: 'Document intelligence, grounded',
   lpH1a: 'Ask your documents.', lpH1b: 'Get answers that ', lpH1em: 'show their work.',
-  lpSub: 'DocuMind reads your PDFs, specs, and notes, then answers in plain language — with every claim traced back to the exact page it came from.',
+  lpSub: 'DocuMind reads your PDFs, specs, and notes, then answers in plain language - with every claim traced back to the exact page it came from.',
   lpOpen: 'Open the workspace', lpSee: 'See a live answer',
   lpM1: 'File formats', lpM2: 'To first token', lpM3: 'Cited claims',
   lpHowEye: 'How it works', lpHowH1: 'From upload to a cited answer', lpHowH2: 'in three deliberate steps.',
-  lpS1t: 'Add your documents', lpS1p: 'Drop in PDFs, specs, and Markdown notes. Each page is parsed and indexed for retrieval — no setup, no schemas.',
+  lpS1t: 'Add your documents', lpS1p: 'Drop in PDFs, specs, and Markdown notes. Each page is parsed and indexed for retrieval - no setup, no schemas.',
   lpS2t: 'Ask in plain language', lpS2p: 'Question your whole library at once. Hybrid search pulls the passages that actually answer you, not just keyword hits.',
   lpS3t: 'Verify every claim', lpS3p: 'Each statement carries a source. One click opens the original document with the exact passage highlighted.',
   lpFootNote: 'A portfolio concept · built with React, TypeScript & Tailwind',

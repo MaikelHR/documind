@@ -1,4 +1,4 @@
-/* DocuMind — Landing: marketing view (hero + product preview, how-it-works, footer). */
+/* DocuMind - Landing: marketing view (hero + product preview, how-it-works, footer). */
 
 import { useTranslation } from 'react-i18next';
 import { Ic } from './icons';

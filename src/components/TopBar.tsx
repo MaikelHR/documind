@@ -1,4 +1,4 @@
-/* DocuMind — TopBar: brand, theme (direction) switch, language switch, mode toggle, avatar. */
+/* DocuMind - TopBar: brand, theme (direction) switch, language switch, mode toggle, avatar. */
 
 import { useTranslation } from 'react-i18next';
 import type { Direction, Lang, Mode } from '../types';
@@ -85,7 +85,7 @@ export function TopBar({ direction, mode, lang, inApp, onDir, onMode, onLang, on
       >
         {mode === 'dark' ? <Ic.sun /> : <Ic.moon />}
       </button>
-      <button className="avatar-chip" title="Alex Rivera — Acme Inc.">
+      <button className="avatar-chip" title="Alex Rivera - Acme Inc.">
         AR
       </button>
     </header>

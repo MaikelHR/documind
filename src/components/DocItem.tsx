@@ -1,4 +1,4 @@
-/* DocuMind — DocItem: a single source row (thumbnail, name, indexed/indexing state). */
+/* DocuMind - DocItem: a single source row (thumbnail, name, indexed/indexing state). */
 
 import { useTranslation } from 'react-i18next';
 import { usePick } from '../i18n/usePick';

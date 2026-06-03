@@ -1,4 +1,4 @@
-/* DocuMind — CiteMarker: inline [[n]] citation chip; hover lights its source card. */
+/* DocuMind - CiteMarker: inline [[n]] citation chip; hover lights its source card. */
 
 import type { Cite } from '../../types';
 

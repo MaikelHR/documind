@@ -1,4 +1,4 @@
-/* DocuMind — Composer: suggestions, auto-growing textarea, send/stop, hint row. */
+/* DocuMind - Composer: suggestions, auto-growing textarea, send/stop, hint row. */
 
 import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';

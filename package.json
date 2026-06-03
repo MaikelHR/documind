@@ -1,6 +1,6 @@
 {
   "name": "documind",
-  "description": "AI document assistant with source citations — React + TypeScript + Tailwind (frontend demo with simulated data).",
+  "description": "AI document assistant with source citations - React + TypeScript + Tailwind (frontend demo with simulated data).",
   "private": true,
   "version": "0.1.0",
   "type": "module",

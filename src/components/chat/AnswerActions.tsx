@@ -1,4 +1,4 @@
-/* DocuMind — AnswerActions: copy (plain text), regenerate, "every claim cited" note. */
+/* DocuMind - AnswerActions: copy (plain text), regenerate, "every claim cited" note. */
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -18,7 +18,7 @@ export function AnswerActions({ msg, onRegen }: AnswerActionsProps) {
     try {
       if (navigator.clipboard) navigator.clipboard.writeText(plainText(msg.text));
     } catch {
-      /* clipboard unavailable — ignore */
+      /* clipboard unavailable - ignore */
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);

@@ -1,4 +1,4 @@
-/* DocuMind — application root: state, streaming simulation, theming, i18n wiring, view routing. */
+/* DocuMind - application root: state, streaming simulation, theming, i18n wiring, view routing. */
 
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';

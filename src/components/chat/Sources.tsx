@@ -1,4 +1,4 @@
-/* DocuMind — Sources: grid of citation cards under a finished answer.
+/* DocuMind - Sources: grid of citation cards under a finished answer.
    Hovering a card lights it (and its inline marker via shared `lit` state). */
 
 import { useTranslation } from 'react-i18next';

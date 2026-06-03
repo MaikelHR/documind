@@ -1,4 +1,4 @@
-/* DocuMind — DropZone: click or drag-and-drop to add documents. */
+/* DocuMind - DropZone: click or drag-and-drop to add documents. */
 
 import { useState } from 'react';
 import type { DragEvent } from 'react';

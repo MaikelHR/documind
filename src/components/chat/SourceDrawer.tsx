@@ -1,4 +1,4 @@
-/* DocuMind — SourceDrawer: slide-in original document page with the cited
+/* DocuMind - SourceDrawer: slide-in original document page with the cited
    passage wrapped in <mark>; flashes and auto-scrolls into view on open. */
 
 import { useEffect, useRef } from 'react';
@@ -61,7 +61,7 @@ export function SourceDrawer({ cite, open, onClose }: SourceDrawerProps) {
             <div className="drawer-body scroll" ref={bodyRef}>
               <div className="page-sheet">
                 <div className="pg-h">
-                  {pick(doc.name).replace(/\.[a-z]+$/i, '')} —{' '}
+                  {pick(doc.name).replace(/\.[a-z]+$/i, '')} -{' '}
                   {typeof cite.page === 'number' ? 'p. ' + cite.page : cite.page}
                 </div>
                 {paras.map((p, i) =>

@@ -1,4 +1,4 @@
-/* DocuMind — icon set.
+/* DocuMind - icon set.
    The inline stroke SVGs from the handoff are mapped to lucide-react per the
    README's mapping table. The brand `Logo` lives in ./Logo. */
 

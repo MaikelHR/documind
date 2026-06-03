@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* =========================================================================
-   DocuMind — design system (ported from the design handoff `styles.css`)
+   DocuMind - design system (ported from the design handoff `styles.css`)
    Type: Newsreader (editorial serif) · Space Grotesk (UI) · Space Mono (labels)
    Theme: 4 color/tone directions × light/dark via [data-direction][data-mode]
    These rules are intentionally UNLAYERED so they win over Tailwind's

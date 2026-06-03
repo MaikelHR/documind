@@ -1,4 +1,4 @@
-/* DocuMind — `pick()`: resolve a bilingual data object ({ es, en }) into the
+/* DocuMind - `pick()`: resolve a bilingual data object ({ es, en }) into the
    active language. UI chrome goes through react-i18next's `t`; sample DATA
    (doc names, page content, snippets, seeded messages, suggestions) goes
    through `pick`, mirroring the reference `makeI18n.pick`. */

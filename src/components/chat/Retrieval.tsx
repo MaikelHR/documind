@@ -1,4 +1,4 @@
-/* DocuMind — Retrieval: the "thinking" phase — 4 staggered steps
+/* DocuMind - Retrieval: the "thinking" phase - 4 staggered steps
    (3 completed checks + 1 active spinner). */
 
 import type { CSSProperties } from 'react';

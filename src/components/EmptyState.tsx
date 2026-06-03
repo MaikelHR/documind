@@ -1,4 +1,4 @@
-/* DocuMind — EmptyState: editorial prompt shown when there are no documents. */
+/* DocuMind - EmptyState: editorial prompt shown when there are no documents. */
 
 import { useTranslation } from 'react-i18next';
 import { DropZone } from './DropZone';

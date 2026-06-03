@@ -1,4 +1,4 @@
-/* DocuMind — Sidebar: new chat, search, source list, dropzone (off-canvas on mobile). */
+/* DocuMind - Sidebar: new chat, search, source list, dropzone (off-canvas on mobile). */
 
 import { useTranslation } from 'react-i18next';
 import type { Doc } from '../types';
