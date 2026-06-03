@@ -8,7 +8,7 @@
 [![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)](https://vite.dev)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 
-**🔗 Live demo:** _https://your-app.vercel.app_ &nbsp;·&nbsp; built by [@MaikelHR](https://github.com/MaikelHR)
+**🔗 Live demo:** **[documind-lake.vercel.app](https://documind-lake.vercel.app)** &nbsp;·&nbsp; built by [@MaikelHR](https://github.com/MaikelHR)
 
 > ⚠️ **This is a front-end portfolio demo.** The answers, documents, retrieval and
 > "streaming" are **simulated client-side** (no real LLM or backend yet). The focus is
