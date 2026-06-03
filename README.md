@@ -26,14 +26,9 @@ primary / English)**, **light + dark** modes, and **four** selectable color dire
 
 ## Screenshots
 
-_Add three PNGs to `docs/` (workspace, source drawer, landing) and uncomment the table
-below. The live deploy is the best showcase - keep the link at the top up to date._
-
-<!--
 | Workspace (chat + citations) | Source drawer | Landing |
 | :--: | :--: | :--: |
 | ![Workspace](docs/workspace.png) | ![Source drawer](docs/drawer.png) | ![Landing](docs/landing.png) |
--->
 
 ## Features
 
