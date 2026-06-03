@@ -66,7 +66,7 @@ below. The live deploy is the best showcase - keep the link at the top up to dat
 
 - **Theming without 8 Tailwind palettes.** Each palette is a block of CSS custom properties
   scoped to `[data-direction][data-mode]`; Tailwind's `colors` map to those vars
-  (`bg-surface`, `text-text-dim`, `border-border`…), so utilities resolve per-theme.
+  (`bg-surface`, `text-text-dim`, `border-border`...), so utilities resolve per-theme.
 - **Markup + streaming.** A tiny parser turns answer strings (`**bold**`, `*italic*`,
   `[[n]]`) into ordered segments, then into *units* (word/whitespace tokens; each `[[n]]`
   atomic) so citations land in place while text streams in word-by-word.
@@ -78,12 +78,12 @@ below. The live deploy is the best showcase - keep the link at the top up to dat
 src/
 ├─ App.tsx              # root state machine: view, theme, lang, docs, messages, streaming
 ├─ index.css           # design system (theme tokens, components, keyframes) + Tailwind
-├─ types.ts            # Doc, Cite, Unit, Message (discriminated union), …
+├─ types.ts            # Doc, Cite, Unit, Message (discriminated union), ...
 ├─ i18n/               # i18next config, es/en resources, usePick() for bilingual data
 ├─ data/sample.ts      # sample docs, seeded conversation, answer bank (the "mock backend")
 ├─ lib/markup.ts       # parseMarkup / buildUnits / plainText
-└─ components/         # TopBar, Sidebar, Composer, Landing, … + chat/ (Message, Sources,
-                       #   Retrieval, SourceDrawer, …)
+└─ components/         # TopBar, Sidebar, Composer, Landing, ... + chat/ (Message, Sources,
+                       #   Retrieval, SourceDrawer, ...)
 ```
 
 ## Getting started

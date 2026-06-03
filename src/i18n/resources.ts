@@ -1,19 +1,19 @@
 /* DocuMind - i18n resource bundles (es primary, en secondary).
    Ported verbatim from the handoff `i18n.jsx`. Placeholders use single
-   braces ({q}, {n}, …); i18next is configured for single-brace interpolation
+   braces ({q}, {n}, ...); i18next is configured for single-brace interpolation
    in config.ts so these strings can be reused as-is. */
 
 export const es = {
   /* topbar */
   theme: 'Tema', toLight: 'Cambiar a claro', toDark: 'Cambiar a oscuro', langLabel: 'Idioma',
   /* sidebar */
-  newChat: 'Nuevo chat', searchPh: 'Buscar documentos…', sources: 'Fuentes',
+  newChat: 'Nuevo chat', searchPh: 'Buscar documentos...', sources: 'Fuentes',
   noMatch: 'Ningún documento coincide con “{q}”.',
   pages: 'páginas', note: 'Nota', indexed: 'Indexado', indexing: 'Indexando',
   dzDrag: 'Suelta para subir', dzIdle: 'Arrastra archivos aquí, o ', dzBrowse: 'explora',
   dzFormats: 'PDF · DOCX · MD · TXT - hasta 40MB',
   /* composer */
-  askPh: 'Pregunta lo que sea sobre tus documentos…', answering: 'DocuMind está respondiendo…',
+  askPh: 'Pregunta lo que sea sobre tus documentos...', answering: 'DocuMind está respondiendo...',
   groundedAcross: 'Fundamentado en {n} {s}', sourceN: 'fuente', sourcesN: 'fuentes',
   send: 'enviar', newLine: 'nueva línea', tryLabel: 'Prueba',
   /* empty state */
@@ -33,7 +33,7 @@ export const es = {
   /* retrieval */
   rSearch: 'Buscando en', rDocs: 'documentos', rRetrieved: 'Recuperé',
   rPassage: 'pasaje relevante por búsqueda híbrida', rPassages: 'pasajes relevantes por búsqueda híbrida',
-  rReading: 'Leyendo', rComposing: 'Componiendo respuesta fundamentada…', rSourcesWord: 'fuentes',
+  rReading: 'Leyendo', rComposing: 'Componiendo respuesta fundamentada...', rSourcesWord: 'fuentes',
   /* sources / cite */
   sourcesLabel: 'Fuentes', open: 'Abrir', pageShort: 'pág. {n}',
   /* drawer */
@@ -58,12 +58,12 @@ export const es = {
 
 export const en: typeof es = {
   theme: 'Theme', toLight: 'Switch to light', toDark: 'Switch to dark', langLabel: 'Language',
-  newChat: 'New chat', searchPh: 'Search documents…', sources: 'Sources',
+  newChat: 'New chat', searchPh: 'Search documents...', sources: 'Sources',
   noMatch: 'No documents match “{q}”.',
   pages: 'pages', note: 'Note', indexed: 'Indexed', indexing: 'Indexing',
   dzDrag: 'Release to upload', dzIdle: 'Drag files here, or ', dzBrowse: 'browse',
   dzFormats: 'PDF · DOCX · MD · TXT - up to 40MB',
-  askPh: 'Ask anything about your documents…', answering: 'DocuMind is answering…',
+  askPh: 'Ask anything about your documents...', answering: 'DocuMind is answering...',
   groundedAcross: 'Grounded across {n} {s}', sourceN: 'source', sourcesN: 'sources',
   send: 'send', newLine: 'new line', tryLabel: 'Try',
   emptyEye: 'Workspace · 0 sources',
@@ -78,7 +78,7 @@ export const en: typeof es = {
   you: 'You', copy: 'Copy', copied: 'Copied', regenerate: 'Regenerate', everyCited: 'Every claim cited',
   rSearch: 'Searching across', rDocs: 'documents', rRetrieved: 'Retrieved',
   rPassage: 'relevant passage by hybrid search', rPassages: 'relevant passages by hybrid search',
-  rReading: 'Reading', rComposing: 'Composing grounded answer…', rSourcesWord: 'sources',
+  rReading: 'Reading', rComposing: 'Composing grounded answer...', rSourcesWord: 'sources',
   sourcesLabel: 'Sources', open: 'Open', pageShort: 'p. {n}',
   pageOf: 'Page {p} of {total}', citedAs: 'cited as [{n}]',
   verified: 'Passage verified in source', pp: 'pp.',
