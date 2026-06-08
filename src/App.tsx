@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { usePick } from './i18n/usePick';
 import type { PickFn } from './i18n/usePick';
 import { buildUnits } from './lib/markup';
+import { requestAnswer } from './lib/api';
 import { DOCS, SEED, SUGGESTIONS, UPLOAD_NAMES, pickAnswer } from './data/sample';
 import type { AiMessage, Cite, Direction, Doc, Lang, Message, Mode, UserMessage } from './types';
 import { TopBar } from './components/TopBar';
@@ -52,7 +53,7 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>(() => buildSeed(pick));
 
   const threadRef = useRef<HTMLDivElement | null>(null);
-  const thinkRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const abortRef = useRef<AbortController | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const streamIdRef = useRef<string | undefined>(undefined);
   const firstLangRun = useRef(true);
@@ -74,7 +75,8 @@ export default function App() {
       firstLangRun.current = false;
       return;
     }
-    clearTimeout(thinkRef.current);
+    abortRef.current?.abort();
+    streamIdRef.current = undefined;
     clearInterval(intervalRef.current);
     setStreaming(false);
     setDrawer({ open: false, cite: null });
@@ -96,7 +98,7 @@ export default function App() {
 
   useEffect(
     () => () => {
-      clearTimeout(thinkRef.current);
+      abortRef.current?.abort();
       clearInterval(intervalRef.current);
     },
     [],
@@ -104,51 +106,84 @@ export default function App() {
 
   const scopeCount = docs.filter((d) => d.indexed).length;
 
+  // Reveal a finished answer word-by-word (the streaming -> done phases). The
+  // text + cites come from the backend; here we just animate them in.
+  const beginReveal = (aiId: string, ansText: string, cites: Cite[]) => {
+    const units = buildUnits(ansText);
+    setMessages((m) =>
+      m.map((x) =>
+        x.id === aiId && x.role === 'ai'
+          ? { ...x, text: ansText, cites, units, phase: 'streaming' as const, revealed: 0 }
+          : x,
+      ),
+    );
+    requestAnimationFrame(() => {
+      const el = threadRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    if (units.length === 0) {
+      setMessages((m) => m.map((x) => (x.id === aiId && x.role === 'ai' ? { ...x, phase: 'done' as const } : x)));
+      setStreaming(false);
+      streamIdRef.current = undefined;
+      return;
+    }
+    intervalRef.current = setInterval(() => {
+      setMessages((m) => {
+        let done = false;
+        const next = m.map((x) => {
+          if (x.id !== aiId || x.role !== 'ai') return x;
+          const r = x.revealed + 1;
+          if (r >= x.units.length) {
+            done = true;
+            return { ...x, revealed: x.units.length, phase: 'done' as const };
+          }
+          return { ...x, revealed: r };
+        });
+        if (done) {
+          clearInterval(intervalRef.current);
+          setStreaming(false);
+          streamIdRef.current = undefined;
+        }
+        return next;
+      });
+    }, 24);
+  };
+
+  // Ask the real backend; the thinking phase stays up while it works. Falls
+  // back to the simulated answer bank if /api/chat is unreachable or errors
+  // (e.g. plain `vite dev` with no functions, or a missing API key).
   const send = (text: string) => {
     if (!text || streaming || docs.length === 0) return;
     const tm = nowTime();
     const userMsg: UserMessage = { id: 'u' + Date.now(), role: 'user', text, time: tm };
-    const ans = pickAnswer(text);
-    const ansText = pick(ans.text);
-    const cites: Cite[] = ans.cites.map((c) => ({ ...c, snippet: pick(c.snippet) }));
     const aiId = 'a' + Date.now();
-    const units = buildUnits(ansText);
-    const aiMsg: AiMessage = { id: aiId, role: 'ai', phase: 'thinking', text: ansText, cites, units, revealed: 0, time: tm };
+    const aiMsg: AiMessage = { id: aiId, role: 'ai', phase: 'thinking', text: '', cites: [], units: [], revealed: 0, time: tm };
     setMessages((m) => [...m, userMsg, aiMsg]);
     setStreaming(true);
     streamIdRef.current = aiId;
-    thinkRef.current = setTimeout(() => {
-      setMessages((m) => m.map((x) => (x.id === aiId && x.role === 'ai' ? { ...x, phase: 'streaming' as const } : x)));
-      requestAnimationFrame(() => {
-        const el = threadRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    void requestAnswer(text, lang, ctrl.signal)
+      .then((res) => {
+        if (streamIdRef.current !== aiId) return; // superseded by stop / lang change / new chat
+        beginReveal(aiId, res.text, res.cites);
+      })
+      .catch((err) => {
+        if (ctrl.signal.aborted || streamIdRef.current !== aiId) return;
+        if (import.meta.env.DEV) console.warn('chat API failed, using simulated fallback:', err);
+        const ans = pickAnswer(text);
+        const cites: Cite[] = ans.cites.map((c) => ({ ...c, snippet: pick(c.snippet) }));
+        beginReveal(aiId, pick(ans.text), cites);
       });
-      intervalRef.current = setInterval(() => {
-        setMessages((m) => {
-          let done = false;
-          const next = m.map((x) => {
-            if (x.id !== aiId || x.role !== 'ai') return x;
-            const r = x.revealed + 1;
-            if (r >= x.units.length) {
-              done = true;
-              return { ...x, revealed: x.units.length, phase: 'done' as const };
-            }
-            return { ...x, revealed: r };
-          });
-          if (done) {
-            clearInterval(intervalRef.current);
-            setStreaming(false);
-          }
-          return next;
-        });
-      }, 24);
-    }, 1600);
   };
 
   const stop = () => {
-    clearTimeout(thinkRef.current);
+    abortRef.current?.abort();
     clearInterval(intervalRef.current);
     const aiId = streamIdRef.current;
+    streamIdRef.current = undefined;
     setMessages((m) => m.map((x) => (x.id === aiId && x.role === 'ai' ? { ...x, phase: 'done' as const, revealed: x.units.length } : x)));
     setStreaming(false);
   };
@@ -198,7 +233,8 @@ export default function App() {
   const closeDrawer = () => setDrawer((d) => ({ ...d, open: false }));
 
   const newChat = () => {
-    clearTimeout(thinkRef.current);
+    abortRef.current?.abort();
+    streamIdRef.current = undefined;
     clearInterval(intervalRef.current);
     setStreaming(false);
     setMessages([]);
@@ -271,7 +307,7 @@ export default function App() {
               </div>
               <div className="head-actions">
                 <span className="model-chip">
-                  <Ic.shield style={{ width: 13, height: 13 }} /> {t('grounded')} <span className="mc-sep" /> Sonnet 4.5
+                  <Ic.shield style={{ width: 13, height: 13 }} /> {t('grounded')} <span className="mc-sep" /> Sonnet 4.6
                 </span>
                 <button className="icon-btn" title={t('newChatTitle')} onClick={newChat}>
                   <Ic.edit />

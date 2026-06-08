@@ -1,12 +1,14 @@
 /* DocuMind - SourceDrawer: slide-in original document page with the cited
-   passage wrapped in <mark>; flashes and auto-scrolls into view on open. */
+   passage wrapped in <mark>; flashes and auto-scrolls into view on open.
+   Page text + metadata come from the shared corpus (same source the backend
+   cites from), so the highlight always matches the citation snippet. */
 
 import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePick } from '../../i18n/usePick';
-import { docById } from '../../data/sample';
-import type { Cite, PageContent } from '../../types';
+import { docMeta, pageParagraphs } from '../../../shared/corpus';
+import type { Cite, Lang } from '../../types';
 import { Ic } from '../icons';
 
 function highlightPara(para: string, snippet: string): ReactNode {
@@ -23,12 +25,12 @@ interface SourceDrawerProps {
 }
 
 export function SourceDrawer({ cite, open, onClose }: SourceDrawerProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const pick = usePick();
+  const lang: Lang = i18n.language && i18n.language.startsWith('en') ? 'en' : 'es';
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const doc = cite ? docById(cite.docId) : null;
-  const pages = doc ? (pick(doc.content) as PageContent) : null;
-  const paras: string[] = (pages && cite ? pages[cite.page as number] : undefined) || [];
+  const doc = cite ? docMeta(cite.docId) : null;
+  const paras: string[] = cite ? pageParagraphs(cite.docId, cite.page as number, lang) : [];
 
   useEffect(() => {
     if (open && bodyRef.current) {
