@@ -1,5 +1,5 @@
 /* DocuMind - Vercel serverless function: real, grounded RAG answers over the
-   shared corpus using Claude Sonnet.
+   shared corpus using Google Gemini (free tier).
 
    PHASE 1: no streaming, no retrieval. Every passage of the requested language
    is placed in the prompt, numbered [1..N]; the model answers in that language
@@ -7,13 +7,16 @@
    corpus (snippet = the exact passage text), so they always satisfy the
    drawer's substring invariant - the model never authors the snippet.
 
-   The ANTHROPIC_API_KEY lives only here (server side); it never reaches the
-   client bundle. */
+   The GEMINI_API_KEY lives only here (server side); it never reaches the
+   client bundle. Get a free key at https://aistudio.google.com/apikey */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI } from '@google/genai';
 import { CORPUS_DOCS, chunksFor, docName, headingFor, type Lang } from '../shared/corpus';
 
 export const config = { maxDuration: 60 };
+
+// Free-tier Gemini model. Adjustable (e.g. 'gemini-2.0-flash') if needed.
+const GEMINI_MODEL = 'gemini-2.5-flash';
 
 interface Cite {
   n: number;
@@ -120,31 +123,23 @@ export default async function handler(req: Request): Promise<Response> {
   const lang = asLang(b.lang);
   if (!question) return json({ error: 'missing_question' }, 400);
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return json({ error: 'missing_api_key' }, 500);
   }
 
   try {
-    const client = new Anthropic();
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: 'low' },
-      system: [
-        {
-          type: 'text',
-          text: buildSystemPrompt(lang),
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
-      messages: [{ role: 'user', content: question }],
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: question,
+      config: {
+        systemInstruction: buildSystemPrompt(lang),
+        temperature: 0.2,
+        maxOutputTokens: 1024,
+      },
     });
 
-    let raw = '';
-    for (const block of message.content) {
-      if (block.type === 'text') raw += block.text;
-    }
+    const raw = response.text ?? '';
 
     const { text, cites } = buildCites(raw.trim(), lang);
     return json({ text, cites });
