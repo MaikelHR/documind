@@ -7,22 +7,37 @@
    corpus (snippet = the exact passage text), so they always satisfy the
    drawer's substring invariant - the model never authors the snippet.
 
-   The GEMINI_API_KEY lives only here (server side); it never reaches the
-   client bundle. Get a free key at https://aistudio.google.com/apikey */
+   We call the Gemini REST endpoint directly with fetch + AbortController so the
+   request timeout is fully under our control (the function returns a clear
+   error well before Vercel's maxDuration instead of hanging). The
+   GEMINI_API_KEY lives only here (server side) and travels in the
+   x-goog-api-key header, never in the URL or the client bundle. Get a free key
+   at https://aistudio.google.com/apikey */
 
-import { GoogleGenAI } from '@google/genai';
+/// <reference types="node" />
 import { CORPUS_DOCS, chunksFor, docName, headingFor, type Lang } from '../shared/corpus.js';
 
 export const config = { maxDuration: 60 };
 
 // Free-tier Gemini model. Adjustable (e.g. 'gemini-2.0-flash') if needed.
 const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// Abort the upstream call after this long so we never ride Vercel's hard limit.
+const UPSTREAM_TIMEOUT_MS = 25_000;
 
 interface Cite {
   n: number;
   docId: string;
   page: number;
   snippet: string;
+}
+
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string }> };
+    finishReason?: string;
+  }>;
+  promptFeedback?: { blockReason?: string };
 }
 
 function json(data: unknown, status = 200): Response {
@@ -123,38 +138,63 @@ export default async function handler(req: Request): Promise<Response> {
   const lang = asLang(b.lang);
   if (!question) return json({ error: 'missing_question' }, 400);
 
-  if (!process.env.GEMINI_API_KEY) {
-    return json({ error: 'missing_api_key' }, 500);
-  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return json({ error: 'missing_api_key' }, 500);
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
-    const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      // Fail fast with a clear error instead of hanging until the function's
-      // maxDuration if the upstream call stalls.
-      httpOptions: { timeout: 30_000 },
-    });
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: question,
-      config: {
-        systemInstruction: buildSystemPrompt(lang),
-        temperature: 0.2,
-        maxOutputTokens: 1024,
-        // Grounded extraction needs no chain-of-thought. 2.5-flash defaults to
-        // an automatic thinking budget that, with the whole corpus in the
-        // prompt, can balloon and time out; 0 disables it (answers in ~1-3s).
-        thinkingConfig: { thinkingBudget: 0 },
+    const resp = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': apiKey,
       },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: buildSystemPrompt(lang) }] },
+        contents: [{ role: 'user', parts: [{ text: question }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 1024,
+          // Grounded extraction needs no chain-of-thought. 2.5-flash defaults to
+          // an automatic thinking budget that, with the whole corpus in the
+          // prompt, can balloon and stall; 0 disables it (answers in ~1-3s).
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+      signal: controller.signal,
     });
 
-    const raw = response.text ?? '';
+    if (!resp.ok) {
+      const errBody = (await resp.text()).slice(0, 400);
+      console.error('[api/chat] Gemini HTTP', resp.status, errBody);
+      return json({ error: 'model_error', status: resp.status, detail: errBody }, 502);
+    }
 
-    const { text, cites } = buildCites(raw.trim(), lang);
+    const data = (await resp.json()) as GeminiResponse;
+    const raw = (data.candidates?.[0]?.content?.parts ?? [])
+      .map((p) => p.text ?? '')
+      .join('')
+      .trim();
+
+    if (!raw) {
+      const reason = data.promptFeedback?.blockReason ?? data.candidates?.[0]?.finishReason ?? 'empty_response';
+      console.error('[api/chat] Gemini returned no text:', reason);
+      return json({ error: 'model_empty', detail: reason }, 502);
+    }
+
+    const { text, cites } = buildCites(raw, lang);
     return json({ text, cites });
   } catch (err) {
-    const detail = err instanceof Error ? err.message : 'unknown_error';
+    const aborted = err instanceof Error && err.name === 'AbortError';
+    const detail = aborted
+      ? `upstream timeout after ${UPSTREAM_TIMEOUT_MS}ms`
+      : err instanceof Error
+        ? err.message
+        : 'unknown_error';
     console.error('[api/chat] Gemini call failed:', detail);
-    return json({ error: 'model_error', detail }, 502);
+    return json({ error: aborted ? 'model_timeout' : 'model_error', detail }, 502);
+  } finally {
+    clearTimeout(timer);
   }
 }
