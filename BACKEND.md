@@ -1,16 +1,16 @@
 # DocuMind - Roadmap del backend RAG (por fases) · 100% gratis con Gemini
 
-> **Estado actual (2026-06-09):** **Fase 1 HECHA y mergeada a `main`** - producción
-> (documind-lake.vercel.app) ya responde con Gemini real, fundamentado y con citas exactas.
-> También está hecho, adelantado de la Fase 4: model chip "Gemini 2.5 Flash", README honesto
-> y el merge a main. Si la API falla, el frontend cae al banco simulado (la demo nunca se rompe).
+> **Estado actual (2026-06-09): Fases 1, 4a, 3 y 2 HECHAS, verificadas y en producción**
+> (documind-lake.vercel.app): respuestas reales de Gemini con retrieval semántico (embed +
+> coseno top-4), streaming SSE token a token con Stop real, citas exactas reconstruidas en el
+> server, rate-limit por IP + tope diario. Si la API falla, el frontend cae al banco simulado.
 >
-> Pendiente: **Fase 4a (rate-limit)** → **Fase 3 (retrieval real)** → **Fase 2 (streaming)** →
-> **Fase 5 (uploads, opcional)**. Ese es el orden recomendado: el rate-limit protege la cuota
-> gratis YA; el retrieval es lo de más valor técnico para el CV.
+> Pendiente: solo la **Fase 5 (uploads reales)**.
 >
-> Cada fase se hace en **un chat nuevo** (Claude Code), en la rama `feat/backend`, se prueba
-> en la URL **preview** de Vercel y, verificada, se mergea a `main` (fast-forward).
+> Cada fase se hace en **un chat nuevo** (Claude Code), en la rama `feat/backend`, y se
+> verifica/mergea a `main` en el chat de verificación. OJO: los previews de Vercel tienen
+> Deployment Protection (401 sin sesión del navegador) -> la verificación por terminal se hace
+> con tests locales del handler (mock req/res + key de .env.local) y el live-test en prod.
 
 ---
 
@@ -51,11 +51,11 @@
   una demo de portafolio. La Fase 4a agrega rate-limit propio para proteger esa cuota.
 
 ## El arco
-1. **Fase 1** ✅ HECHA y en producción - respuestas reales de Gemini con citas.
-2. **Fase 4a** - Rate-limit + limpieza (corta, hazla primero: protege la cuota).
-3. **Fase 3** - Retrieval real (RAG: embeddings + top-k). La de más valor para el CV.
-4. **Fase 2** - Streaming real (pulido UX).
-5. **Fase 5** *(opcional)* - Subida real de documentos (con base vectorial).
+1. **Fase 1** ✅ HECHA - respuestas reales de Gemini con citas.
+2. **Fase 4a** ✅ HECHA - rate-limit por IP + tope diario; `@google/genai` desinstalado.
+3. **Fase 3** ✅ HECHA - retrieval real (gemini-embedding-001 768d + coseno top-4; `npm run embed`).
+4. **Fase 2** ✅ HECHA - streaming SSE real con Stop real y renumeración de [[n]] al vuelo.
+5. **Fase 5** - Subida real de documentos (con base vectorial). ÚNICA pendiente.
 
 ---
 
@@ -89,7 +89,7 @@ Implementa el rate-limit del endpoint /api/chat (lee api/chat.ts primero).
 Verificación: spamear >10 requests/min devuelve 429 y la UI muestra el aviso; una pregunta normal sigue funcionando igual. build+lint+type-check nodenext en verde, commit, push (preview).
 ```
 
-## 🟩 Fase 3 - Retrieval real (RAG) - la de más valor para el CV
+## ✅ Fase 3 - Retrieval real (RAG) - HECHA (prompt original, como referencia)
 ```
 Implementa el retrieval real (lee shared/corpus.ts y api/chat.ts primero).
 1. Crea scripts/embed-corpus.mjs (script Node que corro UNA vez localmente con la key en .env.local): por cada chunk del corpus llama por REST a https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent (key en header x-goog-api-key) y guarda los vectores en shared/corpus.embeddings.json (junto a docId/page/lang). Agrega el comando como npm script "embed".
@@ -99,7 +99,7 @@ Verificación: preguntas de temas distintos recuperan documentos distintos; las 
 Nota: el corpus es chico; el objetivo es la arquitectura RAG correcta, no la escala.
 ```
 
-## 🟩 Fase 2 - Streaming real
+## ✅ Fase 2 - Streaming real - HECHA (prompt original, como referencia)
 ```
 Implementa el streaming real (lee api/chat.ts, src/lib/api.ts y App.tsx primero).
 1. Nuevo endpoint o modo en api/chat.ts usando el endpoint REST de streaming: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse (fetch + AbortController igual que ahora; parsea los eventos SSE "data:"). Reenvía el texto al cliente como stream (res.write con chunks; recuerda que el handler es Node-style, puedes escribir directo a res con content-type text/event-stream) y, al terminar, un último evento con el JSON de cites calculado sobre el texto completo acumulado.
@@ -108,14 +108,22 @@ Implementa el streaming real (lee api/chat.ts, src/lib/api.ts y App.tsx primero)
 Verificación: el texto fluye en tiempo real, Stop corta de verdad, citas/drawer correctos en es y en. build+lint+type-check nodenext en verde, commit, push (preview).
 ```
 
-## 🟦 Fase 5 *(opcional)* - Subida real de documentos
+## 🟦 Fase 5 - Subida real de documentos (ÚNICA PENDIENTE)
+
+> **Antes (one-time, lo hace el usuario):** crear proyecto gratis en https://supabase.com,
+> habilitar la extensión `vector` (SQL editor: `create extension if not exists vector;`) y
+> poner `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` en Vercel (Production+Preview, Sensitive)
+> y en `.env.local`. La service-role key es SOLO de servidor, como la de Gemini.
+
 ```
-Implementa la subida real de documentos (solo si las fases anteriores están sólidas en main).
-1. Persistencia: Supabase (Postgres + pgvector, free tier). URL/keys SOLO en el servidor.
-2. api/ingest.ts (handler Node-style, imports .js): recibe PDF -> extrae texto por página -> chunk -> embed (gemini-embedding-001 por REST) -> upsert a pgvector { docId, page, text, embedding }.
-3. Conecta el DropZone real (src/components/DropZone.tsx): subir archivo -> POST /api/ingest -> al indexar, el doc aparece como fuente real consultable. Quita la animación simulada de addDoc().
-4. api/chat.ts: el retrieval consulta pgvector (además del corpus fijo), filtrando por los docs del usuario.
-Verificación: subo un PDF, se indexa, pregunto y cita ese PDF con su página. build+lint+type-check en verde, commit, push.
+Implementa la subida real de documentos.
+1. Persistencia: Supabase (Postgres + pgvector, free tier) vía REST de PostgREST con fetch (sin SDK, mismo espíritu que Gemini; si el SDK @supabase/supabase-js resulta más simple, se permite SOLO en api/). Tabla user_chunks { id, session_id text, doc_id text, doc_name text, ext text, pages int, page int, lang text, text text, embedding vector(768) } + índice ivfflat/hnsw coseno. Keys SOLO en el servidor.
+2. api/ingest.ts (handler Node-style, imports .js, config maxDuration 60): recibe { sessionId, name, data (PDF en base64) } -> límite 4 MB (el body de una función Vercel admite ~4.5 MB) -> extrae texto por página (dependencia permitida: unpdf, que es serverless-friendly; pdf-parse también vale) -> chunk por párrafo (mismo criterio que shared/corpus.ts) -> embed por lote con gemini-embedding-001 (REST, RETRIEVAL_DOCUMENT, outputDimensionality 768 - MISMOS valores que api/chat.ts) -> insert a user_chunks. Responde { docId, name, pages, chunks }. Rate-limit propio (p. ej. 3 uploads/día por IP) reutilizando el patrón de api/chat.ts.
+3. Alcance por visitante SIN auth: el frontend genera un sessionId aleatorio persistido en localStorage ('dm-session') y lo manda en /api/ingest y /api/chat. Los docs subidos solo se recuperan para su sessionId; el corpus fijo es global. Documenta en el README que los uploads de demo son efímeros (agrega limpieza por antigüedad: borrar user_chunks de más de 7 días en cada ingest, sin cron).
+4. api/chat.ts: además del top-k del corpus fijo, embebe la pregunta y consulta pgvector (match coseno, mismo k) filtrado por session_id + lang; mezcla ambos rankings por score y toma el top-4 global. Las citas de docs subidos llevan su docId/page/snippet desde la fila de la DB (el snippet ES el texto del chunk, invariante intacto).
+5. UI - PUNTO CRÍTICO: el SourceDrawer hoy renderiza páginas desde shared/corpus.ts (pageParagraphs), que NO conoce los docs subidos. Haz que para docs subidos el drawer pida la página a un endpoint (p. ej. GET /api/page?sessionId&docId&page o que /api/chat devuelva pageParas en la cite) y la renderice igual (título + párrafos + <mark> por indexOf). Sin esto las citas de uploads no abren nada.
+6. Conecta el DropZone real (src/components/DropZone.tsx + addDoc en App.tsx): subir archivo -> POST /api/ingest con progreso real (sube/indexando/indexed); al indexar, el doc aparece en el sidebar como fuente consultable con sus páginas reales. Mantén addDoc() simulado SOLO como fallback sin backend (vite dev), igual que el banco de respuestas.
+Verificación: subo un PDF real, se indexa, pregunto algo que solo está en ese PDF -> respuesta con cita [n] que abre el drawer en la página correcta con el pasaje resaltado; en otra ventana/incógnito (otro sessionId) ese doc NO aparece ni se recupera; los 4 docs del corpus siguen funcionando igual; build+lint+type-check nodenext en verde (api/ingest.ts también), commit, push.
 ```
 
 ---
@@ -137,6 +145,7 @@ scripts/embed-corpus.mjs     # (Fase 3) offline, corre una vez
 ```
 
 ## Para el CV
-Ya puedes decir con honestidad: **"Asistente de documentos con respuestas fundamentadas y
-citas verificables (Google Gemini), React + TypeScript + Tailwind, serverless en Vercel."**
-Al cerrar la **Fase 3** puedes sumarle: **"con retrieval semántico (RAG: embeddings + top-k)"**.
+Ya puedes decir con honestidad: **"RAG completo con citas verificables: retrieval semántico
+(embeddings Gemini + coseno top-k), streaming SSE en tiempo real y rate-limiting - React +
+TypeScript + Tailwind, serverless en Vercel."**
+Al cerrar la **Fase 5** puedes sumarle: **"con ingesta de documentos del usuario (pgvector)"**.
