@@ -141,6 +141,35 @@ export default async function handler(req: Request): Promise<Response> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return json({ error: 'missing_api_key' }, 500);
 
+  // --- TEMPORARY diagnostics (remove before merge to main) ---
+  if (question === '__diag__') {
+    return json({ marker: 'rest-diag-v2', hasKey: !!apiKey, keyLen: apiKey.length, node: process.version, model: GEMINI_MODEL });
+  }
+  if (question === '__pinggemini__') {
+    const c = new AbortController();
+    const tm = setTimeout(() => c.abort(), 8000);
+    const t0 = Date.now();
+    try {
+      const r = await fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK.' }] }],
+          generationConfig: { maxOutputTokens: 16, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+        signal: c.signal,
+      });
+      const bodyStart = (await r.text()).slice(0, 300);
+      return json({ pinged: true, status: r.status, ms: Date.now() - t0, bodyStart });
+    } catch (e) {
+      const aborted = e instanceof Error && e.name === 'AbortError';
+      return json({ pinged: false, aborted, ms: Date.now() - t0, detail: e instanceof Error ? e.message : String(e) });
+    } finally {
+      clearTimeout(tm);
+    }
+  }
+  // --- end diagnostics ---
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
   try {
