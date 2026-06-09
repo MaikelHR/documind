@@ -128,7 +128,12 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      // Fail fast with a clear error instead of hanging until the function's
+      // maxDuration if the upstream call stalls.
+      httpOptions: { timeout: 30_000 },
+    });
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: question,
@@ -136,6 +141,10 @@ export default async function handler(req: Request): Promise<Response> {
         systemInstruction: buildSystemPrompt(lang),
         temperature: 0.2,
         maxOutputTokens: 1024,
+        // Grounded extraction needs no chain-of-thought. 2.5-flash defaults to
+        // an automatic thinking budget that, with the whole corpus in the
+        // prompt, can balloon and time out; 0 disables it (answers in ~1-3s).
+        thinkingConfig: { thinkingBudget: 0 },
       },
     });
 
@@ -145,6 +154,7 @@ export default async function handler(req: Request): Promise<Response> {
     return json({ text, cites });
   } catch (err) {
     const detail = err instanceof Error ? err.message : 'unknown_error';
+    console.error('[api/chat] Gemini call failed:', detail);
     return json({ error: 'model_error', detail }, 502);
   }
 }
