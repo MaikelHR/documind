@@ -10,9 +10,10 @@
    This is a classic Node-style (req, res) Vercel handler. We call the Gemini
    REST endpoint directly with fetch + AbortController so the upstream timeout
    is fully under our control (the function returns a clear error well before
-   Vercel's maxDuration instead of hanging). The GEMINI_API_KEY lives only here
-   (server side) and travels in the x-goog-api-key header, never in the URL or
-   the client bundle. Get a free key at https://aistudio.google.com/apikey */
+   Vercel's maxDuration instead of hanging), and retry a couple of times on the
+   free tier's transient 503/429. The GEMINI_API_KEY lives only here (server
+   side) and travels in the x-goog-api-key header, never in the URL or the
+   client bundle. Get a free key at https://aistudio.google.com/apikey */
 
 /// <reference types="node" />
 import { CORPUS_DOCS, chunksFor, docName, headingFor, type Lang } from '../shared/corpus.js';
@@ -24,6 +25,9 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 // Abort the upstream call after this long so we never ride Vercel's hard limit.
 const UPSTREAM_TIMEOUT_MS = 25_000;
+// Retry transient free-tier errors (503 high demand, 429 rate limit) a couple
+// of times with a short backoff, all inside the abort budget above.
+const MAX_ATTEMPTS = 3;
 
 /** Minimal shapes of Vercel's Node request/response (avoids a @vercel/node dep). */
 interface VercelReq {
@@ -138,6 +142,8 @@ function readBody(raw: unknown): { question?: unknown; lang?: unknown } {
   return (raw ?? {}) as { question?: unknown; lang?: unknown };
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export default async function handler(req: VercelReq, res: VercelRes): Promise<void> {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'method_not_allowed' });
@@ -158,60 +164,35 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
     return;
   }
 
-  // --- TEMPORARY diagnostics (remove before merge to main) ---
-  if (question === '__diag__') {
-    res.status(200).json({ marker: 'node-diag-v3', keyLen: apiKey.length, node: process.version, model: GEMINI_MODEL });
-    return;
-  }
-  if (question === '__pinggemini__') {
-    const c = new AbortController();
-    const tm = setTimeout(() => c.abort(), 8000);
-    const t0 = Date.now();
-    try {
-      const r = await fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK.' }] }],
-          generationConfig: { maxOutputTokens: 16, thinkingConfig: { thinkingBudget: 0 } },
-        }),
-        signal: c.signal,
-      });
-      const bodyStart = (await r.text()).slice(0, 300);
-      res.status(200).json({ pinged: true, status: r.status, ms: Date.now() - t0, bodyStart });
-    } catch (e) {
-      const aborted = e instanceof Error && e.name === 'AbortError';
-      res.status(200).json({ pinged: false, aborted, ms: Date.now() - t0, detail: e instanceof Error ? e.message : String(e) });
-    } finally {
-      clearTimeout(tm);
-    }
-    return;
-  }
-  // --- end diagnostics ---
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const payload = JSON.stringify({
+    systemInstruction: { parts: [{ text: buildSystemPrompt(lang) }] },
+    contents: [{ role: 'user', parts: [{ text: question }] }],
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 1024,
+      // Grounded extraction needs no chain-of-thought. 2.5-flash defaults to an
+      // automatic thinking budget that, with the whole corpus in the prompt,
+      // can balloon and stall; 0 disables it (answers in ~1-3s).
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
+
   try {
-    const resp = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: buildSystemPrompt(lang) }] },
-        contents: [{ role: 'user', parts: [{ text: question }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 1024,
-          // Grounded extraction needs no chain-of-thought. 2.5-flash defaults to
-          // an automatic thinking budget that, with the whole corpus in the
-          // prompt, can balloon and stall; 0 disables it (answers in ~1-3s).
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-      signal: controller.signal,
-    });
+    const fire = () =>
+      fetch(GEMINI_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+        body: payload,
+        signal: controller.signal,
+      });
+
+    let resp = await fire();
+    for (let attempt = 1; attempt < MAX_ATTEMPTS && !resp.ok && (resp.status === 503 || resp.status === 429); attempt++) {
+      await sleep(400 * attempt);
+      resp = await fire();
+    }
 
     if (!resp.ok) {
       const errBody = (await resp.text()).slice(0, 400);
