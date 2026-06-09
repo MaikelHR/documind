@@ -17,7 +17,8 @@
 ## Decisiones de arquitectura (gratis & honesto)
 - **Backend:** funciones serverless de **Vercel** en `api/` del mismo repo (un solo deploy, free tier).
 - **LLM:** Google **Gemini** (`gemini-2.5-flash`) **via REST con `fetch`** (NO el SDK; ver gotchas).
-- **Embeddings (Fase 3):** Gemini `text-embedding-004` (gratis), también por REST -> una sola key.
+- **Embeddings (Fase 3):** Gemini `gemini-embedding-001` (gratis), también por REST -> una sola key.
+  (`text-embedding-004`, el plan original, fue retirado de la API: devuelve 404 en 2026.)
 - **Corpus fijo:** los 4 documentos, en `shared/corpus.ts` (única fuente de verdad; lo usan el
   drawer del frontend y la API).
 - **Retrieval (Fase 3):** embeddings + similitud coseno **en memoria**. Sin base de datos hasta la Fase 5.
@@ -38,8 +39,12 @@
 4. **`generationConfig.thinkingConfig.thinkingBudget: 0`** - el thinking automático de
    2.5-flash se dispara con prompts grandes y agota el tiempo. Con 0 responde en ~1s.
 5. El free tier da **503 "high demand" intermitente** -> ya hay reintentos (x3, backoff corto).
-6. Verificar `api/chat.ts` aparte (no lo cubre `tsc -b`):
-   `npx tsc --ignoreConfig --noEmit --skipLibCheck --strict --verbatimModuleSyntax --module nodenext --moduleResolution nodenext --target es2022 --lib es2022,dom api/chat.ts`
+6. Verificar `api/chat.ts` aparte (no lo cubre `tsc -b`); el `--resolveJsonModule` es
+   necesario desde la Fase 3 (importa `shared/corpus.embeddings.json`):
+   `npx tsc --ignoreConfig --noEmit --skipLibCheck --strict --verbatimModuleSyntax --module nodenext --moduleResolution nodenext --resolveJsonModule --target es2022 --lib es2022,dom api/chat.ts`
+7. (Fase 3) Si cambia el texto del corpus hay que re-correr `npm run embed` y commitear
+   el JSON; un chunk editado sin re-embeber simplemente queda fuera del retrieval
+   (match exacto por docId/page/lang/text), nunca se cita con un vector viejo.
 
 ## Costo
 - **Gemini free tier = $0** (sin tarjeta). Tiene límites por minuto y por día, suficientes para
@@ -107,7 +112,7 @@ Verificación: el texto fluye en tiempo real, Stop corta de verdad, citas/drawer
 ```
 Implementa la subida real de documentos (solo si las fases anteriores están sólidas en main).
 1. Persistencia: Supabase (Postgres + pgvector, free tier). URL/keys SOLO en el servidor.
-2. api/ingest.ts (handler Node-style, imports .js): recibe PDF -> extrae texto por página -> chunk -> embed (text-embedding-004 por REST) -> upsert a pgvector { docId, page, text, embedding }.
+2. api/ingest.ts (handler Node-style, imports .js): recibe PDF -> extrae texto por página -> chunk -> embed (gemini-embedding-001 por REST) -> upsert a pgvector { docId, page, text, embedding }.
 3. Conecta el DropZone real (src/components/DropZone.tsx): subir archivo -> POST /api/ingest -> al indexar, el doc aparece como fuente real consultable. Quita la animación simulada de addDoc().
 4. api/chat.ts: el retrieval consulta pgvector (además del corpus fijo), filtrando por los docs del usuario.
 Verificación: subo un PDF, se indexa, pregunto y cita ese PDF con su página. build+lint+type-check en verde, commit, push.

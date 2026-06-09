@@ -55,6 +55,7 @@ export default function App() {
   const threadRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const streamIdRef = useRef<string | undefined>(undefined);
   const firstLangRun = useRef(true);
 
@@ -78,6 +79,7 @@ export default function App() {
     abortRef.current?.abort();
     streamIdRef.current = undefined;
     clearInterval(intervalRef.current);
+    clearTimeout(revealTimerRef.current);
     setStreaming(false);
     setDrawer({ open: false, cite: null });
     setMessages(docs.length === 0 ? [] : buildSeed(pick));
@@ -100,6 +102,7 @@ export default function App() {
     () => () => {
       abortRef.current?.abort();
       clearInterval(intervalRef.current);
+      clearTimeout(revealTimerRef.current);
     },
     [],
   );
@@ -168,7 +171,13 @@ export default function App() {
     void requestAnswer(text, lang, ctrl.signal)
       .then((res) => {
         if (streamIdRef.current !== aiId) return; // superseded by stop / lang change / new chat
-        beginReveal(aiId, res.text, res.cites);
+        // Surface the passages the backend ACTUALLY retrieved in the thinking
+        // steps for a beat (the staggered steps need ~1.4s to play), then reveal.
+        setMessages((m) => m.map((x) => (x.id === aiId && x.role === 'ai' ? { ...x, retrieved: res.retrieved ?? [] } : x)));
+        revealTimerRef.current = setTimeout(() => {
+          if (streamIdRef.current !== aiId) return;
+          beginReveal(aiId, res.text, res.cites);
+        }, 1450);
       })
       .catch((err) => {
         if (ctrl.signal.aborted || streamIdRef.current !== aiId) return;
@@ -187,6 +196,7 @@ export default function App() {
   const stop = () => {
     abortRef.current?.abort();
     clearInterval(intervalRef.current);
+    clearTimeout(revealTimerRef.current);
     const aiId = streamIdRef.current;
     streamIdRef.current = undefined;
     setMessages((m) => m.map((x) => (x.id === aiId && x.role === 'ai' ? { ...x, phase: 'done' as const, revealed: x.units.length } : x)));
@@ -241,6 +251,7 @@ export default function App() {
     abortRef.current?.abort();
     streamIdRef.current = undefined;
     clearInterval(intervalRef.current);
+    clearTimeout(revealTimerRef.current);
     setStreaming(false);
     setMessages([]);
     setDrawer({ open: false, cite: null });

@@ -50,7 +50,7 @@ export function Message({ msg, onOpen, onRegen }: MessageProps) {
         <span className="time">{msg.time}</span>
       </div>
       {msg.phase === 'thinking' ? (
-        <Retrieval cites={msg.cites} />
+        <Retrieval retrieved={msg.retrieved} />
       ) : (
         <AiBubble
           units={units}

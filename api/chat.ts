@@ -1,14 +1,20 @@
 /* DocuMind - Vercel serverless function: real, grounded RAG answers over the
    shared corpus using Google Gemini (free tier).
 
-   PHASE 1: no streaming, no retrieval. Every passage of the requested language
-   is placed in the prompt, numbered [1..N]; the model answers in that language
-   and marks each claim with [[n]]. Citations are rebuilt server-side from the
-   corpus (snippet = the exact passage text), so they always satisfy the
-   drawer's substring invariant - the model never authors the snippet.
+   PHASE 3: real retrieval. The question is embedded (gemini-embedding-001) and
+   ranked by cosine similarity against the precomputed chunk vectors in
+   shared/corpus.embeddings.json (generated offline by `npm run embed`); only
+   the top-k same-language passages go into the prompt, numbered [1..k]. The
+   model answers in that language and marks each claim with [[n]]. Citations
+   are rebuilt server-side from those top-k chunks (snippet = the exact passage
+   text), so they always satisfy the drawer's substring invariant - the model
+   never authors the snippet. If embedding fails or vectors are stale, we fall
+   back to the phase-1 behavior (every passage of the language) so the demo
+   keeps answering. The response also reports which passages were retrieved,
+   feeding the UI's retrieval steps.
 
    This is a classic Node-style (req, res) Vercel handler. We call the Gemini
-   REST endpoint directly with fetch + AbortController so the upstream timeout
+   REST endpoints directly with fetch + AbortController so the upstream timeout
    is fully under our control (the function returns a clear error well before
    Vercel's maxDuration instead of hanging), and retry a couple of times on the
    free tier's transient 503/429. The GEMINI_API_KEY lives only here (server
@@ -16,13 +22,22 @@
    client bundle. Get a free key at https://aistudio.google.com/apikey */
 
 /// <reference types="node" />
-import { CORPUS_DOCS, chunksFor, docName, headingFor, type Lang } from '../shared/corpus.js';
+import { CORPUS_DOCS, chunksFor, docName, headingFor, type Chunk, type Lang } from '../shared/corpus.js';
+import EMBEDDINGS from '../shared/corpus.embeddings.json' with { type: 'json' };
 
 export const config = { maxDuration: 60 };
 
 // Free-tier Gemini model. Adjustable (e.g. 'gemini-2.0-flash') if needed.
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// Embedding model and dimensions - MUST match scripts/embed-corpus.mjs
+// (text-embedding-004 was retired from the API; this is the stable embedder).
+const EMBED_MODEL = 'gemini-embedding-001';
+const EMBED_DIMS = 768;
+const EMBED_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent`;
+// How many passages the prompt gets. The corpus is small (~tens of chunks per
+// language), so a fixed k keeps the architecture honest without tuning.
+const TOP_K = 4;
 // Abort the upstream call after this long so we never ride Vercel's hard limit.
 const UPSTREAM_TIMEOUT_MS = 25_000;
 // Retry transient free-tier errors (503 high demand, 429 rate limit) a couple
@@ -86,6 +101,14 @@ interface Cite {
   snippet: string;
 }
 
+/** A passage that made the top-k cut, reported back to the UI. `score` is the
+    cosine similarity; absent when retrieval fell back to the full corpus. */
+interface Retrieved {
+  docId: string;
+  page: number;
+  score?: number;
+}
+
 interface GeminiResponse {
   candidates?: Array<{
     content?: { parts?: Array<{ text?: string }> };
@@ -98,7 +121,95 @@ function asLang(v: unknown): Lang {
   return v === 'en' ? 'en' : 'es';
 }
 
-function buildSystemPrompt(lang: Lang): string {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** POST one Gemini REST call, retrying the free tier's transient 503/429. */
+async function callGemini(url: string, payload: string, apiKey: string, signal: AbortSignal): Promise<Response> {
+  const fire = () =>
+    fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+      body: payload,
+      signal,
+    });
+  let resp = await fire();
+  for (let attempt = 1; attempt < MAX_ATTEMPTS && !resp.ok && (resp.status === 503 || resp.status === 429); attempt++) {
+    await sleep(400 * attempt);
+    resp = await fire();
+  }
+  return resp;
+}
+
+/* Precomputed chunk vectors, keyed by the chunk's exact identity. Matching on
+   (docId, page, lang, text) means an edited chunk silently drops out of
+   retrieval until `npm run embed` is re-run - it can never be ranked (or
+   cited) with a stale vector. */
+interface EmbeddedChunk {
+  docId: string;
+  page: number;
+  lang: string;
+  text: string;
+  embedding: number[];
+}
+
+const chunkKey = (c: { docId: string; page: number; lang: string; text: string }) =>
+  `${c.docId}|${c.page}|${c.lang}|${c.text}`;
+
+const VECTORS = new Map<string, number[]>(
+  ((EMBEDDINGS as { chunks: EmbeddedChunk[] }).chunks ?? []).map((e) => [chunkKey(e), e.embedding]),
+);
+
+function cosine(a: number[], b: number[]): number {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+/** Embed the question for retrieval. Returns null on any non-abort failure so
+    the handler can fall back to the full corpus instead of erroring out. */
+async function embedQuestion(question: string, apiKey: string, signal: AbortSignal): Promise<number[] | null> {
+  const payload = JSON.stringify({
+    model: `models/${EMBED_MODEL}`,
+    content: { parts: [{ text: question }] },
+    taskType: 'RETRIEVAL_QUERY',
+    outputDimensionality: EMBED_DIMS,
+  });
+  try {
+    const resp = await callGemini(EMBED_URL, payload, apiKey, signal);
+    if (!resp.ok) {
+      console.error('[api/chat] embed HTTP', resp.status, (await resp.text()).slice(0, 200));
+      return null;
+    }
+    const data = (await resp.json()) as { embedding?: { values?: number[] } };
+    const values = data.embedding?.values;
+    return Array.isArray(values) && values.length > 0 ? values : null;
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') throw err; // out of time budget - let the handler report it
+    console.error('[api/chat] embed failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/** Top-k same-language chunks by cosine similarity against the question. */
+function rankChunks(qVec: number[], lang: Lang): Array<{ chunk: Chunk; score: number }> {
+  return chunksFor(lang)
+    .flatMap((chunk) => {
+      const vec = VECTORS.get(chunkKey(chunk));
+      return vec ? [{ chunk, score: cosine(qVec, vec) }] : [];
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, TOP_K);
+}
+
+function buildSystemPrompt(lang: Lang, passagesIn: Chunk[]): string {
   const language = lang === 'en' ? 'English' : 'Spanish';
 
   const docList = CORPUS_DOCS.map((d) => {
@@ -106,7 +217,7 @@ function buildSystemPrompt(lang: Lang): string {
     return `- "${d.name[lang] ?? d.name.en}" (${d.ext}, ${pages})`;
   }).join('\n');
 
-  const passages = chunksFor(lang)
+  const passages = passagesIn
     .map((c, i) => {
       const heading = headingFor(c.docId, c.page, lang);
       const where = heading
@@ -122,7 +233,7 @@ function buildSystemPrompt(lang: Lang): string {
     '',
     'Rules:',
     `- Write your entire answer in ${language}.`,
-    '- Ground every factual claim in the passages. Immediately after each claim, cite the passage number(s) that support it using the EXACT marker form [[n]] (double square brackets), e.g. "Revenue grew 19%.[[3]]". Cite several with [[2]][[5]].',
+    '- Ground every factual claim in the passages. Immediately after each claim, cite the passage number(s) that support it using the EXACT marker form [[n]] (double square brackets), e.g. "Revenue grew 19%.[[3]]". Cite several with [[2]][[4]].',
     '- Only cite a passage if it genuinely supports the claim.',
     `- If the passages do not answer the question, say so briefly in ${language} and do not invent facts or citations. You may use the document list below to answer questions about the documents themselves (names, file types, page counts).`,
     '- Be concise: 2-4 sentences. Use **bold** for key figures and terms, and *italics* for light emphasis. Do not use headings, bullet lists, or links.',
@@ -138,11 +249,11 @@ function buildSystemPrompt(lang: Lang): string {
 
 const CITE_RE = /\[\[(\d+)\]\]/g;
 
-/** Rebuild citations from the model's [[n]] markers against the corpus.
-    Renumbers to 1..k in order of first appearance and drops out-of-range
-    markers, so each snippet is the exact passage text (drawer invariant). */
-function buildCites(rawText: string, lang: Lang): { text: string; cites: Cite[] } {
-  const chunks = chunksFor(lang);
+/** Rebuild citations from the model's [[n]] markers against the prompt's
+    passages. Renumbers to 1..k in order of first appearance and drops
+    out-of-range markers, so each snippet is the exact passage text (drawer
+    invariant). */
+function buildCites(rawText: string, chunks: Chunk[]): { text: string; cites: Cite[] } {
   const renum = new Map<number, number>();
   const order: number[] = [];
 
@@ -182,8 +293,6 @@ function readBody(raw: unknown): { question?: unknown; lang?: unknown } {
   return (raw ?? {}) as { question?: unknown; lang?: unknown };
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 export default async function handler(req: VercelReq, res: VercelRes): Promise<void> {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'method_not_allowed' });
@@ -209,35 +318,38 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
     return;
   }
 
+  // One abort budget covers both upstream calls (embed + generate); the embed
+  // round-trip is ~100s of ms, so the generate call keeps almost all of it.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-  const payload = JSON.stringify({
-    systemInstruction: { parts: [{ text: buildSystemPrompt(lang) }] },
-    contents: [{ role: 'user', parts: [{ text: question }] }],
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 1024,
-      // Grounded extraction needs no chain-of-thought. 2.5-flash defaults to an
-      // automatic thinking budget that, with the whole corpus in the prompt,
-      // can balloon and stall; 0 disables it (answers in ~1-3s).
-      thinkingConfig: { thinkingBudget: 0 },
-    },
-  });
 
   try {
-    const fire = () =>
-      fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-        body: payload,
-        signal: controller.signal,
-      });
+    // Retrieval: embed the question, rank same-language chunks by cosine
+    // similarity, keep the top-k. On embed failure (or stale/missing vectors)
+    // fall back to the phase-1 behavior: every passage of the language.
+    const qVec = await embedQuestion(question, apiKey, controller.signal);
+    const ranked = qVec ? rankChunks(qVec, lang) : [];
+    const passages = ranked.length > 0 ? ranked.map((r) => r.chunk) : chunksFor(lang);
+    const retrieved: Retrieved[] =
+      ranked.length > 0
+        ? ranked.map((r) => ({ docId: r.chunk.docId, page: r.chunk.page, score: Number(r.score.toFixed(4)) }))
+        : passages.map((c) => ({ docId: c.docId, page: c.page }));
+    if (ranked.length === 0) console.warn('[api/chat] retrieval unavailable, using full corpus');
 
-    let resp = await fire();
-    for (let attempt = 1; attempt < MAX_ATTEMPTS && !resp.ok && (resp.status === 503 || resp.status === 429); attempt++) {
-      await sleep(400 * attempt);
-      resp = await fire();
-    }
+    const payload = JSON.stringify({
+      systemInstruction: { parts: [{ text: buildSystemPrompt(lang, passages) }] },
+      contents: [{ role: 'user', parts: [{ text: question }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 1024,
+        // Grounded extraction needs no chain-of-thought. 2.5-flash defaults to
+        // an automatic thinking budget that can balloon and stall with large
+        // prompts; 0 disables it (answers in ~1-3s).
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
+
+    const resp = await callGemini(GEMINI_URL, payload, apiKey, controller.signal);
 
     if (!resp.ok) {
       const errBody = (await resp.text()).slice(0, 400);
@@ -259,8 +371,8 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
       return;
     }
 
-    const { text, cites } = buildCites(rawText, lang);
-    res.status(200).json({ text, cites });
+    const { text, cites } = buildCites(rawText, passages);
+    res.status(200).json({ text, cites, retrieved });
   } catch (err) {
     const aborted = err instanceof Error && err.name === 'AbortError';
     const detail = aborted

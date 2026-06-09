@@ -23,7 +23,10 @@ dist-ssr
 *.sln
 *.sw?
 
-# Env / secrets (ANTHROPIC_API_KEY lives here for `vercel dev`; never commit it)
+# Env / secrets (GEMINI_API_KEY lives here for `vercel dev` / `npm run embed`; never commit it)
 .env
 .env.*
 !.env.example
+
+# Vercel CLI project link
+.vercel

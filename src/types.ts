@@ -45,6 +45,14 @@ export interface Cite {
   snippet: string;
 }
 
+/** A passage the backend actually retrieved (top-k) for an answer; drives the
+    live retrieval steps. `score` is the cosine similarity (when available). */
+export interface Retrieved {
+  docId: string;
+  page: number;
+  score?: number;
+}
+
 /** A streaming unit: a word/whitespace token, or an atomic citation marker. */
 export type TextUnit = { text: string; bold?: boolean; ital?: boolean };
 export type CiteUnit = { cite: number };
@@ -65,6 +73,9 @@ export interface AiMessage {
   phase: Phase;
   text: string;
   cites: Cite[];
+  /** Set when the real backend reports its top-k; undefined while retrieving
+      (and for seeded/simulated answers). */
+  retrieved?: Retrieved[];
   units: Unit[];
   revealed: number;
   time: string;

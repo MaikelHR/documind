@@ -33,7 +33,8 @@ export const es = {
   rateLimited: 'Demo agotada por hoy, intenta más tarde.',
   /* retrieval */
   rSearch: 'Buscando en', rDocs: 'documentos', rRetrieved: 'Recuperé',
-  rPassage: 'pasaje relevante por búsqueda híbrida', rPassages: 'pasajes relevantes por búsqueda híbrida',
+  rRetrieving: 'Recuperando los pasajes más relevantes...',
+  rPassage: 'pasaje relevante por búsqueda semántica', rPassages: 'pasajes relevantes por búsqueda semántica',
   rReading: 'Leyendo', rComposing: 'Componiendo respuesta fundamentada...', rSourcesWord: 'fuentes',
   /* sources / cite */
   sourcesLabel: 'Fuentes', open: 'Abrir', pageShort: 'pág. {n}',
@@ -79,7 +80,8 @@ export const en: typeof es = {
   you: 'You', copy: 'Copy', copied: 'Copied', regenerate: 'Regenerate', everyCited: 'Every claim cited',
   rateLimited: 'Demo exhausted for today, please try again later.',
   rSearch: 'Searching across', rDocs: 'documents', rRetrieved: 'Retrieved',
-  rPassage: 'relevant passage by hybrid search', rPassages: 'relevant passages by hybrid search',
+  rRetrieving: 'Retrieving the most relevant passages...',
+  rPassage: 'relevant passage by semantic search', rPassages: 'relevant passages by semantic search',
   rReading: 'Reading', rComposing: 'Composing grounded answer...', rSourcesWord: 'sources',
   sourcesLabel: 'Sources', open: 'Open', pageShort: 'p. {n}',
   pageOf: 'Page {p} of {total}', citedAs: 'cited as [{n}]',
