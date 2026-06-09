@@ -110,18 +110,24 @@ Verificación: el texto fluye en tiempo real, Stop corta de verdad, citas/drawer
 
 ## 🟦 Fase 5 - Subida real de documentos (ÚNICA PENDIENTE)
 
-> **Antes (one-time, lo hace el usuario):** crear proyecto gratis en https://supabase.com,
-> habilitar la extensión `vector` (SQL editor: `create extension if not exists vector;`) y
-> poner `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` en Vercel (Production+Preview, Sensitive)
-> y en `.env.local`. La service-role key es SOLO de servidor, como la de Gemini.
+> **Vector DB = Upstash Vector** (NO Supabase: su free tier se pausa a los 7 días de
+> inactividad y la reactivación es manual - inaceptable para un portafolio. Upstash Vector
+> no se pausa nunca, es API REST pura -mismo patrón fetch que Gemini-, free tier 10k
+> vectores, filtros por metadata y borrado por prefijo de id.)
+>
+> **Antes (one-time, lo hace el usuario):** crear cuenta gratis en https://console.upstash.com
+> -> Vector -> Create Index: dimensions **768**, metric **cosine** (sin embedding model de
+> Upstash: los vectores los pone Gemini). Copiar `UPSTASH_VECTOR_REST_URL` y
+> `UPSTASH_VECTOR_REST_TOKEN` a Vercel (Production+Preview, Sensitive) y a `.env.local`.
+> El token es SOLO de servidor, como la key de Gemini.
 
 ```
 Implementa la subida real de documentos.
-1. Persistencia: Supabase (Postgres + pgvector, free tier) vía REST de PostgREST con fetch (sin SDK, mismo espíritu que Gemini; si el SDK @supabase/supabase-js resulta más simple, se permite SOLO en api/). Tabla user_chunks { id, session_id text, doc_id text, doc_name text, ext text, pages int, page int, lang text, text text, embedding vector(768) } + índice ivfflat/hnsw coseno. Keys SOLO en el servidor.
-2. api/ingest.ts (handler Node-style, imports .js, config maxDuration 60): recibe { sessionId, name, data (PDF en base64) } -> límite 4 MB (el body de una función Vercel admite ~4.5 MB) -> extrae texto por página (dependencia permitida: unpdf, que es serverless-friendly; pdf-parse también vale) -> chunk por párrafo (mismo criterio que shared/corpus.ts) -> embed por lote con gemini-embedding-001 (REST, RETRIEVAL_DOCUMENT, outputDimensionality 768 - MISMOS valores que api/chat.ts) -> insert a user_chunks. Responde { docId, name, pages, chunks }. Rate-limit propio (p. ej. 3 uploads/día por IP) reutilizando el patrón de api/chat.ts.
-3. Alcance por visitante SIN auth: el frontend genera un sessionId aleatorio persistido en localStorage ('dm-session') y lo manda en /api/ingest y /api/chat. Los docs subidos solo se recuperan para su sessionId; el corpus fijo es global. Documenta en el README que los uploads de demo son efímeros (agrega limpieza por antigüedad: borrar user_chunks de más de 7 días en cada ingest, sin cron).
-4. api/chat.ts: además del top-k del corpus fijo, embebe la pregunta y consulta pgvector (match coseno, mismo k) filtrado por session_id + lang; mezcla ambos rankings por score y toma el top-4 global. Las citas de docs subidos llevan su docId/page/snippet desde la fila de la DB (el snippet ES el texto del chunk, invariante intacto).
-5. UI - PUNTO CRÍTICO: el SourceDrawer hoy renderiza páginas desde shared/corpus.ts (pageParagraphs), que NO conoce los docs subidos. Haz que para docs subidos el drawer pida la página a un endpoint (p. ej. GET /api/page?sessionId&docId&page o que /api/chat devuelva pageParas en la cite) y la renderice igual (título + párrafos + <mark> por indexOf). Sin esto las citas de uploads no abren nada.
+1. Persistencia: Upstash Vector vía su API REST con fetch (SIN SDK; auth: header "Authorization: Bearer $UPSTASH_VECTOR_REST_TOKEN"; endpoints POST $URL/upsert, /query, /delete, /range - lee https://upstash.com/docs/vector/api/get-started). Cada chunk subido se upsertea como { id: `${sessionId}:${docId}:${page}:${i}`, vector, metadata: { sessionId, docId, docName, ext, pages, page, lang, text, createdAt } }. El esquema de id por prefijo es deliberado: permite recuperar/borrar por documento o página con prefijo.
+2. api/ingest.ts (handler Node-style, imports .js, config maxDuration 60): recibe { sessionId, name, data (PDF en base64) } -> límite 4 MB (el body de una función Vercel admite ~4.5 MB) -> extrae texto por página (dependencia permitida: unpdf, serverless-friendly) -> chunk por párrafo (mismo criterio que shared/corpus.ts) -> embed con gemini-embedding-001 (REST, RETRIEVAL_DOCUMENT, outputDimensionality 768 - MISMOS valores que api/chat.ts) -> upsert por lote a Upstash. Responde { docId, name, pages, chunks }. Rate-limit propio (p. ej. 3 uploads/día por IP) reutilizando el patrón de api/chat.ts, y guard de almacenamiento: si POST $URL/info reporta el índice cerca del tope free (p. ej. >9000 vectores), responde { error: 'storage_full' } sin ingestar.
+3. Alcance por visitante SIN auth: el frontend genera un sessionId aleatorio persistido en localStorage ('dm-session') y lo manda en /api/ingest y /api/chat. Los docs subidos solo se recuperan para su sessionId (filter de metadata en /query: "sessionId = '...' AND lang = '...'"); el corpus fijo es global. Documenta en el README que los uploads de demo son efímeros.
+4. api/chat.ts: además del top-k del corpus fijo, consulta Upstash /query con el MISMO vector de la pregunta (topK 4, includeMetadata true, filter por sessionId+lang); mezcla ambos rankings por score (coseno en ambos) y toma el top-4 global. Las citas de docs subidos llevan docId/page/snippet desde la metadata (el snippet ES el texto del chunk, invariante intacto).
+5. UI - PUNTO CRÍTICO: el SourceDrawer hoy renderiza páginas desde shared/corpus.ts (pageParagraphs), que NO conoce los docs subidos. Para docs subidos, recupera los párrafos de la página vía /range con prefix `${sessionId}:${docId}:${page}:` (expón GET /api/page o incluye pageParas en la cite que devuelve /api/chat) y renderízala igual (título + párrafos + <mark> por indexOf). Sin esto las citas de uploads no abren nada.
 6. Conecta el DropZone real (src/components/DropZone.tsx + addDoc en App.tsx): subir archivo -> POST /api/ingest con progreso real (sube/indexando/indexed); al indexar, el doc aparece en el sidebar como fuente consultable con sus páginas reales. Mantén addDoc() simulado SOLO como fallback sin backend (vite dev), igual que el banco de respuestas.
 Verificación: subo un PDF real, se indexa, pregunto algo que solo está en ese PDF -> respuesta con cita [n] que abre el drawer en la página correcta con el pasaje resaltado; en otra ventana/incógnito (otro sessionId) ese doc NO aparece ni se recupera; los 4 docs del corpus siguen funcionando igual; build+lint+type-check nodenext en verde (api/ingest.ts también), commit, push.
 ```
@@ -137,7 +143,7 @@ Verificación: subo un PDF real, se indexa, pregunto algo que solo está en ese 
 ## Estructura objetivo (al terminar)
 ```
 api/chat.ts                  # Vercel fn (Node-style): retrieve + Gemini REST (stream) + cites
-api/ingest.ts                # (Fase 5) subir PDF -> parse -> chunk -> embed -> pgvector
+api/ingest.ts                # (Fase 5) subir PDF -> parse -> chunk -> embed -> Upstash Vector
 shared/corpus.ts             # los 4 docs en chunks (lo usan frontend y API)
 shared/corpus.embeddings.json# (Fase 3) vectores precalculados del corpus
 scripts/embed-corpus.mjs     # (Fase 3) offline, corre una vez
@@ -148,4 +154,4 @@ scripts/embed-corpus.mjs     # (Fase 3) offline, corre una vez
 Ya puedes decir con honestidad: **"RAG completo con citas verificables: retrieval semántico
 (embeddings Gemini + coseno top-k), streaming SSE en tiempo real y rate-limiting - React +
 TypeScript + Tailwind, serverless en Vercel."**
-Al cerrar la **Fase 5** puedes sumarle: **"con ingesta de documentos del usuario (pgvector)"**.
+Al cerrar la **Fase 5** puedes sumarle: **"con ingesta de documentos del usuario (Upstash Vector)"**.
