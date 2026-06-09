@@ -307,7 +307,7 @@ export default function App() {
               </div>
               <div className="head-actions">
                 <span className="model-chip">
-                  <Ic.shield style={{ width: 13, height: 13 }} /> {t('grounded')} <span className="mc-sep" /> Sonnet 4.6
+                  <Ic.shield style={{ width: 13, height: 13 }} /> {t('grounded')} <span className="mc-sep" /> Gemini 2.5 Flash
                 </span>
                 <button className="icon-btn" title={t('newChatTitle')} onClick={newChat}>
                   <Ic.edit />
