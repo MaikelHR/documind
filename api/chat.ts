@@ -13,6 +13,15 @@
    keeps answering. The response also reports which passages were retrieved,
    feeding the UI's retrieval steps.
 
+   PHASE 2: real streaming. When the request body carries `stream: true`, the
+   handler calls Gemini's streamGenerateContent SSE endpoint and proxies the
+   text to the client as its own SSE stream (text/event-stream): first a
+   { retrieved } event, then { chunk } text deltas with the [[n]] citation
+   markers already renumbered (same first-appearance order buildCites uses, so
+   markers never shift on screen), and finally { done, text, cites, retrieved }
+   with the authoritative answer. Without the flag the JSON response above is
+   unchanged.
+
    This is a classic Node-style (req, res) Vercel handler. We call the Gemini
    REST endpoints directly with fetch + AbortController so the upstream timeout
    is fully under our control (the function returns a clear error well before
@@ -25,11 +34,12 @@
 import { CORPUS_DOCS, chunksFor, docName, headingFor, type Chunk, type Lang } from '../shared/corpus.js';
 import EMBEDDINGS from '../shared/corpus.embeddings.json' with { type: 'json' };
 
-export const config = { maxDuration: 60 };
+export const config = { maxDuration: 60, supportsResponseStreaming: true };
 
 // Free-tier Gemini model. Adjustable (e.g. 'gemini-2.0-flash') if needed.
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_STREAM_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
 // Embedding model and dimensions - MUST match scripts/embed-corpus.mjs
 // (text-embedding-004 was retired from the API; this is the stable embedder).
 const EMBED_MODEL = 'gemini-embedding-001';
@@ -92,6 +102,10 @@ interface VercelReq {
 interface VercelRes {
   status(code: number): VercelRes;
   json(data: unknown): void;
+  // Node response primitives, used by the streaming mode.
+  setHeader(name: string, value: string): void;
+  write(chunk: string): void;
+  end(): void;
 }
 
 interface Cite {
@@ -281,16 +295,56 @@ function buildCites(rawText: string, chunks: Chunk[]): { text: string; cites: Ci
   return { text, cites };
 }
 
+/* Streaming helpers. */
+
+/** A possibly-incomplete trailing [[n]] marker (or run of bold/italic
+    asterisks) - held back until the next delta completes it, so a marker
+    split across deltas is never emitted half-formed. */
+const HOLD_TAIL_RE = /(\*+|\[\[?\d*\]?)$/;
+
+/** Yield the data payload of each SSE event in a Gemini response body. */
+async function* sseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let data: string[] = [];
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).replace(/\r$/, '');
+        buf = buf.slice(nl + 1);
+        if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+        else if (line === '' && data.length > 0) {
+          yield data.join('\n');
+          data = [];
+        }
+      }
+    }
+    // Flush: a final event whose terminating newline(s) never arrived.
+    for (const tail of (buf + decoder.decode()).split('\n')) {
+      const line = tail.replace(/\r$/, '');
+      if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
+    }
+    if (data.length > 0) yield data.join('\n');
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /** Vercel auto-parses a JSON body into req.body; tolerate a raw string too. */
-function readBody(raw: unknown): { question?: unknown; lang?: unknown } {
+function readBody(raw: unknown): { question?: unknown; lang?: unknown; stream?: unknown } {
   if (typeof raw === 'string') {
     try {
-      return JSON.parse(raw) as { question?: unknown; lang?: unknown };
+      return JSON.parse(raw) as { question?: unknown; lang?: unknown; stream?: unknown };
     } catch {
       return {};
     }
   }
-  return (raw ?? {}) as { question?: unknown; lang?: unknown };
+  return (raw ?? {}) as { question?: unknown; lang?: unknown; stream?: unknown };
 }
 
 export default async function handler(req: VercelReq, res: VercelRes): Promise<void> {
@@ -322,6 +376,8 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
   // round-trip is ~100s of ms, so the generate call keeps almost all of it.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  // Once SSE headers are on the wire, errors must travel as events, not JSON.
+  let sseStarted = false;
 
   try {
     // Retrieval: embed the question, rank same-language chunks by cosine
@@ -348,6 +404,68 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
         thinkingConfig: { thinkingBudget: 0 },
       },
     });
+
+    if (b.stream === true) {
+      const resp = await callGemini(GEMINI_STREAM_URL, payload, apiKey, controller.signal);
+      if (!resp.ok || !resp.body) {
+        const errBody = (await resp.text()).slice(0, 400);
+        console.error('[api/chat] Gemini HTTP', resp.status, errBody);
+        res.status(502).json({ error: 'model_error', status: resp.status, detail: errBody });
+        return;
+      }
+
+      res.status(200);
+      res.setHeader('content-type', 'text/event-stream; charset=utf-8');
+      res.setHeader('cache-control', 'no-cache, no-transform');
+      sseStarted = true;
+      const send = (event: unknown) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+      send({ retrieved });
+
+      // Renumber [[n]] markers on the fly in first-appearance order - the
+      // exact mapping buildCites recomputes over the full text at the end -
+      // so the markers streamed to the client are already the final ones.
+      const renum = new Map<number, number>();
+      const renumber = (s: string) =>
+        s.replace(CITE_RE, (_full, d: string) => {
+          const p = Number(d);
+          if (!passages[p - 1]) return '';
+          if (!renum.has(p)) renum.set(p, renum.size + 1);
+          return `[[${renum.get(p)}]]`;
+        });
+
+      let raw = '';
+      let sentLen = 0;
+      let reason: string | undefined;
+      for await (const eventJson of sseEvents(resp.body)) {
+        let data: GeminiResponse;
+        try {
+          data = JSON.parse(eventJson) as GeminiResponse;
+        } catch {
+          continue;
+        }
+        reason = data.promptFeedback?.blockReason ?? data.candidates?.[0]?.finishReason ?? reason;
+        const delta = (data.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('');
+        if (!delta) continue;
+        raw += delta;
+        const held = HOLD_TAIL_RE.exec(raw);
+        const safe = renumber(held ? raw.slice(0, held.index) : raw);
+        if (safe.length > sentLen) {
+          send({ chunk: safe.slice(sentLen) });
+          sentLen = safe.length;
+        }
+      }
+
+      const rawText = raw.trim();
+      if (!rawText) {
+        console.error('[api/chat] Gemini stream returned no text:', reason ?? 'empty_response');
+        send({ error: 'model_empty' });
+      } else {
+        const { text, cites } = buildCites(rawText, passages);
+        send({ done: true, text, cites, retrieved });
+      }
+      res.end();
+      return;
+    }
 
     const resp = await callGemini(GEMINI_URL, payload, apiKey, controller.signal);
 
@@ -381,7 +499,14 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
         ? err.message
         : 'unknown_error';
     console.error('[api/chat] Gemini call failed:', detail);
-    res.status(502).json({ error: aborted ? 'model_timeout' : 'model_error', detail });
+    const code = aborted ? 'model_timeout' : 'model_error';
+    if (sseStarted) {
+      // Headers already sent: report the failure in-band and close the stream.
+      res.write(`data: ${JSON.stringify({ error: code, detail })}\n\n`);
+      res.end();
+    } else {
+      res.status(502).json({ error: code, detail });
+    }
   } finally {
     clearTimeout(timer);
   }
