@@ -11,7 +11,7 @@
    client bundle. Get a free key at https://aistudio.google.com/apikey */
 
 import { GoogleGenAI } from '@google/genai';
-import { CORPUS_DOCS, chunksFor, docName, headingFor, type Lang } from '../shared/corpus';
+import { CORPUS_DOCS, chunksFor, docName, headingFor, type Lang } from '../shared/corpus.js';
 
 export const config = { maxDuration: 60 };
 

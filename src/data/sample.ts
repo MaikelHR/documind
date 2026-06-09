@@ -2,7 +2,7 @@
    Snippets are EXACT substrings of their same-language page content so the
    drawer highlight matches in both languages. Ported from the handoff data.jsx. */
 
-import type { Bilingual, Doc, Lang, RawCite } from '../types';
+import type { Bilingual, Doc, Lang, RawCite } from '../types.js';
 
 export const DOCS: Doc[] = [
   {

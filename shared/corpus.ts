@@ -8,8 +8,8 @@
    indexOf. Section headings (the first entry of each page) are NOT chunks: they
    provide context in the prompt but are not citable passages. */
 
-import { DOCS } from '../src/data/sample';
-import type { Bilingual, Doc, Lang, PageContent } from '../src/types';
+import { DOCS } from '../src/data/sample.js';
+import type { Bilingual, Doc, Lang, PageContent } from '../src/types.js';
 
 export type { Lang };
 
