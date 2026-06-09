@@ -34,7 +34,7 @@
    Node; sin extensión da `ERR_MODULE_NOT_FOUND` en runtime y TS2835 en el build).
 3. **NO usar el SDK `@google/genai`**: en Vercel su `generateContent` se colgaba e ignoraba su
    timeout. Se llama a la API REST con `fetch` + `AbortController` (25s), key en el header
-   `x-goog-api-key` (nunca en la URL). El paquete sigue en package.json SIN USO (quitarlo en la Fase 4a).
+   `x-goog-api-key` (nunca en la URL). El paquete ya fue desinstalado (Fase 4a).
 4. **`generationConfig.thinkingConfig.thinkingBudget: 0`** - el thinking automático de
    2.5-flash se dispara con prompts grandes y agota el tiempo. Con 0 responde en ~1s.
 5. El free tier da **503 "high demand" intermitente** -> ya hay reintentos (x3, backoff corto).

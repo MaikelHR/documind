@@ -10,6 +10,15 @@ export interface ChatResponse {
   cites: Cite[];
 }
 
+/** HTTP 429 from the backend's rate limit - the UI shows a "demo exhausted"
+    notice instead of silently falling back to the simulated answers. */
+export class RateLimitedError extends Error {
+  constructor() {
+    super('rate_limited');
+    this.name = 'RateLimitedError';
+  }
+}
+
 export async function requestAnswer(question: string, lang: Lang, signal?: AbortSignal): Promise<ChatResponse> {
   const res = await fetch('/api/chat', {
     method: 'POST',
@@ -17,6 +26,7 @@ export async function requestAnswer(question: string, lang: Lang, signal?: Abort
     body: JSON.stringify({ question, lang }),
     signal,
   });
+  if (res.status === 429) throw new RateLimitedError();
   if (!res.ok) throw new Error(`chat request failed: ${res.status}`);
   const data: unknown = await res.json();
   const d = (data ?? {}) as { text?: unknown; cites?: unknown };

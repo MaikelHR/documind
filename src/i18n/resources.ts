@@ -30,6 +30,7 @@ export const es = {
   teP: 'Las respuestas se componen solo de tus documentos indexados, con citas a la página exacta.',
   /* message */
   you: 'Tú', copy: 'Copiar', copied: 'Copiado', regenerate: 'Regenerar', everyCited: 'Cada afirmación citada',
+  rateLimited: 'Demo agotada por hoy, intenta más tarde.',
   /* retrieval */
   rSearch: 'Buscando en', rDocs: 'documentos', rRetrieved: 'Recuperé',
   rPassage: 'pasaje relevante por búsqueda híbrida', rPassages: 'pasajes relevantes por búsqueda híbrida',
@@ -76,6 +77,7 @@ export const en: typeof es = {
   teH: 'Ask anything about your {n} {s}.',
   teP: 'Answers are composed only from your indexed documents, with citations to the exact page.',
   you: 'You', copy: 'Copy', copied: 'Copied', regenerate: 'Regenerate', everyCited: 'Every claim cited',
+  rateLimited: 'Demo exhausted for today, please try again later.',
   rSearch: 'Searching across', rDocs: 'documents', rRetrieved: 'Retrieved',
   rPassage: 'relevant passage by hybrid search', rPassages: 'relevant passages by hybrid search',
   rReading: 'Reading', rComposing: 'Composing grounded answer...', rSourcesWord: 'sources',

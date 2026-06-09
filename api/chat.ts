@@ -29,10 +29,50 @@ const UPSTREAM_TIMEOUT_MS = 25_000;
 // of times with a short backoff, all inside the abort budget above.
 const MAX_ATTEMPTS = 3;
 
+/* Rate limiting (protects the free Gemini quota): per-IP sliding window plus
+   a global daily cap, tracked in plain module state. Serverless caveat: each
+   warm instance keeps its own counters, so with N concurrent instances the
+   effective limit is up to N times higher and a cold start resets it. That
+   best-effort behavior is fine for a portfolio demo - no Redis needed. */
+const IP_LIMIT = 10; // requests per IP per window
+const IP_WINDOW_MS = 60_000;
+const DAILY_LIMIT = 300; // global requests per UTC day (per instance)
+const ipHits = new Map<string, number[]>();
+let dailyDate = '';
+let dailyCount = 0;
+
+function clientIp(req: VercelReq): string {
+  const fwd = req.headers?.['x-forwarded-for'];
+  const first = Array.isArray(fwd) ? fwd[0] : fwd;
+  return (first ?? '').split(',')[0].trim() || 'unknown';
+}
+
+/** True if this request is allowed; records it against both limits. */
+function admitRequest(ip: string, now: number): boolean {
+  const today = new Date(now).toISOString().slice(0, 10);
+  if (today !== dailyDate) {
+    dailyDate = today;
+    dailyCount = 0;
+    ipHits.clear(); // daily rollover doubles as a memory sweep
+  }
+  if (dailyCount >= DAILY_LIMIT) return false;
+
+  const fresh = (ipHits.get(ip) ?? []).filter((t) => now - t < IP_WINDOW_MS);
+  if (fresh.length >= IP_LIMIT) {
+    ipHits.set(ip, fresh);
+    return false;
+  }
+  fresh.push(now);
+  ipHits.set(ip, fresh);
+  dailyCount++;
+  return true;
+}
+
 /** Minimal shapes of Vercel's Node request/response (avoids a @vercel/node dep). */
 interface VercelReq {
   method?: string;
   body?: unknown;
+  headers?: Record<string, string | string[] | undefined>;
 }
 interface VercelRes {
   status(code: number): VercelRes;
@@ -155,6 +195,11 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
   const lang = asLang(b.lang);
   if (!question) {
     res.status(400).json({ error: 'missing_question' });
+    return;
+  }
+
+  if (!admitRequest(clientIp(req), Date.now())) {
+    res.status(429).json({ error: 'rate_limited' });
     return;
   }
 

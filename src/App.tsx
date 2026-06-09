@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { usePick } from './i18n/usePick';
 import type { PickFn } from './i18n/usePick';
 import { buildUnits } from './lib/markup';
-import { requestAnswer } from './lib/api';
+import { RateLimitedError, requestAnswer } from './lib/api';
 import { DOCS, SEED, SUGGESTIONS, UPLOAD_NAMES, pickAnswer } from './data/sample';
 import type { AiMessage, Cite, Direction, Doc, Lang, Message, Mode, UserMessage } from './types';
 import { TopBar } from './components/TopBar';
@@ -172,6 +172,11 @@ export default function App() {
       })
       .catch((err) => {
         if (ctrl.signal.aborted || streamIdRef.current !== aiId) return;
+        if (err instanceof RateLimitedError) {
+          // Rate limit hit: say so instead of silently faking an answer.
+          beginReveal(aiId, t('rateLimited'), []);
+          return;
+        }
         if (import.meta.env.DEV) console.warn('chat API failed, using simulated fallback:', err);
         const ans = pickAnswer(text);
         const cites: Cite[] = ans.cites.map((c) => ({ ...c, snippet: pick(c.snippet) }));
