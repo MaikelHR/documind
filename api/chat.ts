@@ -7,12 +7,12 @@
    corpus (snippet = the exact passage text), so they always satisfy the
    drawer's substring invariant - the model never authors the snippet.
 
-   We call the Gemini REST endpoint directly with fetch + AbortController so the
-   request timeout is fully under our control (the function returns a clear
-   error well before Vercel's maxDuration instead of hanging). The
-   GEMINI_API_KEY lives only here (server side) and travels in the
-   x-goog-api-key header, never in the URL or the client bundle. Get a free key
-   at https://aistudio.google.com/apikey */
+   This is a classic Node-style (req, res) Vercel handler. We call the Gemini
+   REST endpoint directly with fetch + AbortController so the upstream timeout
+   is fully under our control (the function returns a clear error well before
+   Vercel's maxDuration instead of hanging). The GEMINI_API_KEY lives only here
+   (server side) and travels in the x-goog-api-key header, never in the URL or
+   the client bundle. Get a free key at https://aistudio.google.com/apikey */
 
 /// <reference types="node" />
 import { CORPUS_DOCS, chunksFor, docName, headingFor, type Lang } from '../shared/corpus.js';
@@ -24,6 +24,16 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 // Abort the upstream call after this long so we never ride Vercel's hard limit.
 const UPSTREAM_TIMEOUT_MS = 25_000;
+
+/** Minimal shapes of Vercel's Node request/response (avoids a @vercel/node dep). */
+interface VercelReq {
+  method?: string;
+  body?: unknown;
+}
+interface VercelRes {
+  status(code: number): VercelRes;
+  json(data: unknown): void;
+}
 
 interface Cite {
   n: number;
@@ -38,13 +48,6 @@ interface GeminiResponse {
     finishReason?: string;
   }>;
   promptFeedback?: { blockReason?: string };
-}
-
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
 }
 
 function asLang(v: unknown): Lang {
@@ -123,27 +126,42 @@ function buildCites(rawText: string, lang: Lang): { text: string; cites: Cite[] 
   return { text, cites };
 }
 
-export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+/** Vercel auto-parses a JSON body into req.body; tolerate a raw string too. */
+function readBody(raw: unknown): { question?: unknown; lang?: unknown } {
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw) as { question?: unknown; lang?: unknown };
+    } catch {
+      return {};
+    }
+  }
+  return (raw ?? {}) as { question?: unknown; lang?: unknown };
+}
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: 'invalid_json' }, 400);
+export default async function handler(req: VercelReq, res: VercelRes): Promise<void> {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'method_not_allowed' });
+    return;
   }
 
-  const b = (body ?? {}) as { question?: unknown; lang?: unknown };
+  const b = readBody(req.body);
   const question = typeof b.question === 'string' ? b.question.trim() : '';
   const lang = asLang(b.lang);
-  if (!question) return json({ error: 'missing_question' }, 400);
+  if (!question) {
+    res.status(400).json({ error: 'missing_question' });
+    return;
+  }
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return json({ error: 'missing_api_key' }, 500);
+  if (!apiKey) {
+    res.status(500).json({ error: 'missing_api_key' });
+    return;
+  }
 
   // --- TEMPORARY diagnostics (remove before merge to main) ---
   if (question === '__diag__') {
-    return json({ marker: 'rest-diag-v2', hasKey: !!apiKey, keyLen: apiKey.length, node: process.version, model: GEMINI_MODEL });
+    res.status(200).json({ marker: 'node-diag-v3', keyLen: apiKey.length, node: process.version, model: GEMINI_MODEL });
+    return;
   }
   if (question === '__pinggemini__') {
     const c = new AbortController();
@@ -160,13 +178,14 @@ export default async function handler(req: Request): Promise<Response> {
         signal: c.signal,
       });
       const bodyStart = (await r.text()).slice(0, 300);
-      return json({ pinged: true, status: r.status, ms: Date.now() - t0, bodyStart });
+      res.status(200).json({ pinged: true, status: r.status, ms: Date.now() - t0, bodyStart });
     } catch (e) {
       const aborted = e instanceof Error && e.name === 'AbortError';
-      return json({ pinged: false, aborted, ms: Date.now() - t0, detail: e instanceof Error ? e.message : String(e) });
+      res.status(200).json({ pinged: false, aborted, ms: Date.now() - t0, detail: e instanceof Error ? e.message : String(e) });
     } finally {
       clearTimeout(tm);
     }
+    return;
   }
   // --- end diagnostics ---
 
@@ -197,23 +216,25 @@ export default async function handler(req: Request): Promise<Response> {
     if (!resp.ok) {
       const errBody = (await resp.text()).slice(0, 400);
       console.error('[api/chat] Gemini HTTP', resp.status, errBody);
-      return json({ error: 'model_error', status: resp.status, detail: errBody }, 502);
+      res.status(502).json({ error: 'model_error', status: resp.status, detail: errBody });
+      return;
     }
 
     const data = (await resp.json()) as GeminiResponse;
-    const raw = (data.candidates?.[0]?.content?.parts ?? [])
+    const rawText = (data.candidates?.[0]?.content?.parts ?? [])
       .map((p) => p.text ?? '')
       .join('')
       .trim();
 
-    if (!raw) {
+    if (!rawText) {
       const reason = data.promptFeedback?.blockReason ?? data.candidates?.[0]?.finishReason ?? 'empty_response';
       console.error('[api/chat] Gemini returned no text:', reason);
-      return json({ error: 'model_empty', detail: reason }, 502);
+      res.status(502).json({ error: 'model_empty', detail: reason });
+      return;
     }
 
-    const { text, cites } = buildCites(raw, lang);
-    return json({ text, cites });
+    const { text, cites } = buildCites(rawText, lang);
+    res.status(200).json({ text, cites });
   } catch (err) {
     const aborted = err instanceof Error && err.name === 'AbortError';
     const detail = aborted
@@ -222,7 +243,7 @@ export default async function handler(req: Request): Promise<Response> {
         ? err.message
         : 'unknown_error';
     console.error('[api/chat] Gemini call failed:', detail);
-    return json({ error: aborted ? 'model_timeout' : 'model_error', detail }, 502);
+    res.status(502).json({ error: aborted ? 'model_timeout' : 'model_error', detail });
   } finally {
     clearTimeout(timer);
   }
