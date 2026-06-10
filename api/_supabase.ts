@@ -106,6 +106,32 @@ export async function pageChunks(
   return Array.isArray(data) ? (data as Array<{ doc_name: string; ext: string; pages: number; text: string }>) : [];
 }
 
+/** Distinct uploaded docs of one session, newest first, derived from its chunk
+    rows - so expired (swept) docs drop off the list naturally. */
+export async function listSessionDocs(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<Array<{ docId: string; name: string; ext: string; pages: number }>> {
+  const q = new URLSearchParams({
+    select: 'doc_id,doc_name,ext,pages',
+    session_id: `eq.${sessionId}`,
+    order: 'id.desc',
+  });
+  const resp = await sbFetch(`/rest/v1/user_chunks?${q}`, { signal });
+  const rows = (await resp.json()) as unknown;
+  const seen = new Map<string, { docId: string; name: string; ext: string; pages: number }>();
+  for (const r of Array.isArray(rows) ? (rows as Array<{ doc_id: string; doc_name: string; ext: string; pages: number }>) : []) {
+    if (!seen.has(r.doc_id)) seen.set(r.doc_id, { docId: r.doc_id, name: r.doc_name, ext: r.ext, pages: r.pages });
+  }
+  return [...seen.values()];
+}
+
+/** Drop all chunks of one uploaded doc (the sidebar's delete button). */
+export async function deleteUserDoc(sessionId: string, docId: string, signal?: AbortSignal): Promise<void> {
+  const q = new URLSearchParams({ session_id: `eq.${sessionId}`, doc_id: `eq.${docId}` });
+  await sbFetch(`/rest/v1/user_chunks?${q}`, { method: 'DELETE', prefer: 'return=minimal', signal });
+}
+
 /** Demo uploads are ephemeral: drop anything older than 7 days. Called on each
     ingest (no cron needed); failures are logged, never fatal. */
 export async function deleteExpiredChunks(signal?: AbortSignal): Promise<void> {

@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { usePick } from './i18n/usePick';
 import type { PickFn } from './i18n/usePick';
 import { buildUnits } from './lib/markup';
-import { IngestError, RateLimitedError, ingestDocument, requestAnswer } from './lib/api';
+import { IngestError, RateLimitedError, deleteUploadedDoc, fetchSessionDocs, ingestDocument, requestAnswer } from './lib/api';
 import { DOCS, SEED, SUGGESTIONS, UPLOAD_NAMES, pickAnswer } from './data/sample';
 import type { AiMessage, Cite, Direction, Doc, Lang, Message, Mode, Retrieved, UserMessage } from './types';
 import { TopBar } from './components/TopBar';
@@ -110,6 +110,40 @@ export default function App() {
     },
     [],
   );
+
+  // Uploaded docs survive page reloads: on mount, rebuild the sidebar from the
+  // backend (source of truth - expired uploads drop off naturally). Plain
+  // `vite dev` (no /api) just keeps the fixed corpus.
+  useEffect(() => {
+    let stale = false;
+    fetchSessionDocs()
+      .then((remote) => {
+        if (stale || remote.length === 0) return;
+        setDocs((d) => {
+          const have = new Set(d.map((x) => x.id));
+          const add: Doc[] = remote
+            .filter((r) => !have.has(r.docId))
+            .map((r) => ({
+              id: r.docId,
+              name: r.name,
+              ext: r.ext,
+              pages: r.pages,
+              kind: r.ext.toLowerCase(),
+              indexed: true,
+              indexing: false,
+              progress: 100,
+              content: {},
+            }));
+          return add.length > 0 ? [...add, ...d] : d;
+        });
+      })
+      .catch(() => {
+        /* no backend (vite dev) or transient error - fixed corpus only */
+      });
+    return () => {
+      stale = true;
+    };
+  }, []);
 
   const scopeCount = docs.filter((d) => d.indexed).length;
 
@@ -334,6 +368,9 @@ export default function App() {
   };
 
   const deleteDoc = (id: string) => {
+    // Real uploads ('u-' ids) also drop their stored chunks - otherwise the
+    // doc would reappear on the next reload (the sidebar rebuilds from the DB).
+    if (id.startsWith('u-')) deleteUploadedDoc(id);
     setDocs((d) => d.filter((x) => x.id !== id));
     if (activeDocId === id) {
       setActiveDocId(null);

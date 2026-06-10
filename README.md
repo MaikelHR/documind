@@ -46,9 +46,10 @@ primary / English)**, **light + dark** modes, and **four** selectable color dire
   snippets) resolved with a small `pick()` helper. Citation snippets are exact substrings of
   the same-language page text, so the highlight matches in both languages.
 - **Document uploads (real for PDFs)** - drop a PDF and it is parsed, chunked, embedded and
-  stored in pgvector; it becomes a citable source with its real page count. Non-PDF formats
-  (and `vite dev` without functions) keep the simulated indexing. Plus delete, search,
-  empty state, and "load a sample workspace".
+  stored in pgvector; it becomes a citable source with its real page count, and it survives
+  page reloads (the sidebar is rebuilt from the backend) until it expires. Non-PDF formats
+  (and `vite dev` without functions) keep the simulated indexing. Plus delete (which also
+  removes the stored chunks), search, empty state, and "load a sample workspace".
 - **Responsive** - two-pane ≥ 940px; off-canvas sidebar + hamburger below; further
   compaction below 600px.
 - **Accessible & polished** - `:focus-visible` rings, ARIA tablists, and

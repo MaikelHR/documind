@@ -211,6 +211,29 @@ export async function ingestDocument(
   return out;
 }
 
+export interface SessionDoc {
+  docId: string;
+  name: string;
+  ext: string;
+  pages: number;
+}
+
+/** The session's live uploaded docs - rebuilds the sidebar across page
+    reloads (the backend is the source of truth, so expired uploads drop off). */
+export async function fetchSessionDocs(): Promise<SessionDoc[]> {
+  const q = new URLSearchParams({ sessionId: getSessionId() });
+  const res = await fetch(`/api/docs?${q}`);
+  if (!res.ok) throw new Error(`docs request failed: ${res.status}`);
+  const out = (await res.json()) as { docs?: unknown };
+  return Array.isArray(out.docs) ? (out.docs as SessionDoc[]) : [];
+}
+
+/** Remove an uploaded doc's stored chunks (sidebar delete; fire-and-forget). */
+export function deleteUploadedDoc(docId: string): void {
+  const q = new URLSearchParams({ sessionId: getSessionId(), docId });
+  void fetch(`/api/docs?${q}`, { method: 'DELETE' }).catch(() => {});
+}
+
 export interface UploadedPage {
   docId: string;
   page: number;
