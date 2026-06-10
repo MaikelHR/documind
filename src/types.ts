@@ -26,6 +26,8 @@ export interface Doc {
   indexed: boolean;
   indexing?: boolean;
   progress?: number;
+  /** Localized message when a real upload was rejected (shown briefly). */
+  error?: string;
   content: DocContent;
 }
 
@@ -43,6 +45,11 @@ export interface Cite {
   docId: string;
   page: number | string;
   snippet: string;
+  /** Set by the backend only for user-uploaded docs, which the local corpus
+      can't resolve: display name, extension and page count for the UI. */
+  docName?: string;
+  ext?: string;
+  pages?: number;
 }
 
 /** A passage the backend actually retrieved (top-k) for an answer; drives the
@@ -51,6 +58,8 @@ export interface Retrieved {
   docId: string;
   page: number;
   score?: number;
+  /** Display name for user-uploaded docs (unknown to the local corpus). */
+  docName?: string;
 }
 
 /** A streaming unit: a word/whitespace token, or an atomic citation marker. */

@@ -9,6 +9,20 @@
 
 import type { Cite, Lang, Retrieved } from '../types';
 
+/** Anonymous per-visitor scope for uploaded documents (no auth): a random id
+    persisted in localStorage and sent with /api/ingest and /api/chat. The
+    backend only retrieves uploaded chunks belonging to this session; the
+    fixed corpus stays global. */
+export function getSessionId(): string {
+  const KEY = 'dm-session';
+  let id = localStorage.getItem(KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
 export interface ChatResponse {
   text: string;
   cites: Cite[];
@@ -62,7 +76,7 @@ export async function requestAnswer(
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ question, lang, stream: true }),
+    body: JSON.stringify({ question, lang, stream: true, sessionId: getSessionId() }),
     signal,
   });
   if (res.status === 429) throw new RateLimitedError();
@@ -133,4 +147,85 @@ export async function requestAnswer(
   // showed (no cites) instead of failing over to a simulated answer.
   if (acc) return { text: acc, cites: [], retrieved };
   throw new Error('chat stream ended without data');
+}
+
+/* ---- Real document upload (phase 5) ---- */
+
+export interface IngestResponse {
+  docId: string;
+  name: string;
+  pages: number;
+  chunks: number;
+}
+
+/** /api/ingest rejected the file or the quota; `code` is the backend's error
+    id (file_too_large, not_pdf, no_text, rate_limited, ...). Distinguished
+    from network errors so the caller only falls back to the simulated
+    indexing when there is NO backend at all (plain `vite dev`). */
+export class IngestError extends Error {
+  code: string;
+  constructor(code: string) {
+    super(code);
+    this.name = 'IngestError';
+    this.code = code;
+  }
+}
+
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024; // matches api/ingest.ts
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    // readAsDataURL yields "data:application/pdf;base64,<payload>".
+    r.onload = () => resolve(String(r.result).split(',')[1] ?? '');
+    r.onerror = () => reject(r.error ?? new Error('file read failed'));
+    r.readAsDataURL(file);
+  });
+}
+
+/** Upload one PDF for real indexing. `onStage` reports coarse progress
+    (fetch has no upload progress events): read -> sent -> indexed. */
+export async function ingestDocument(
+  file: File,
+  lang: Lang,
+  onStage?: (pct: number) => void,
+): Promise<IngestResponse> {
+  if (file.size > MAX_UPLOAD_BYTES) throw new IngestError('file_too_large');
+  const data = await fileToBase64(file);
+  onStage?.(25);
+  const res = await fetch('/api/ingest', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sessionId: getSessionId(), name: file.name, data, lang }),
+  });
+  onStage?.(85);
+  if (!res.ok) {
+    if (res.status === 413) throw new IngestError('file_too_large');
+    if (res.status === 429) throw new IngestError('rate_limited');
+    const body = (await res.json().catch(() => ({}))) as { error?: unknown };
+    throw new IngestError(typeof body.error === 'string' ? body.error : `http_${res.status}`);
+  }
+  const out = (await res.json()) as IngestResponse;
+  if (!out || typeof out.docId !== 'string') throw new IngestError('malformed_response');
+  onStage?.(100);
+  return out;
+}
+
+export interface UploadedPage {
+  docId: string;
+  page: number;
+  name: string;
+  ext: string;
+  pages: number;
+  paras: string[];
+}
+
+/** Paragraphs of one page of an uploaded doc, for the SourceDrawer. */
+export async function fetchUploadedPage(docId: string, page: number): Promise<UploadedPage> {
+  const q = new URLSearchParams({ sessionId: getSessionId(), docId, page: String(page) });
+  const res = await fetch(`/api/page?${q}`);
+  if (!res.ok) throw new Error(`page request failed: ${res.status}`);
+  const out = (await res.json()) as UploadedPage;
+  if (!Array.isArray(out.paras)) throw new Error('malformed page response');
+  return out;
 }

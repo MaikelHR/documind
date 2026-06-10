@@ -13,6 +13,16 @@
    keeps answering. The response also reports which passages were retrieved,
    feeding the UI's retrieval steps.
 
+   PHASE 5: user uploads. When the request carries a sessionId, the SAME
+   question vector is also sent to Supabase's match_user_chunks RPC (cosine
+   over pgvector, filtered by session_id + lang), and both rankings - fixed
+   corpus and that visitor's uploaded chunks - are merged by score into one
+   global top-k. Citations from uploaded docs carry the row's text as snippet
+   (an exact substring of the page api/page.ts serves, same drawer invariant)
+   plus docName/ext/pages so the UI can label them. If Supabase is slow or
+   down (e.g. free tier waking up), the answer degrades gracefully to the
+   fixed corpus only.
+
    PHASE 2: real streaming. When the request body carries `stream: true`, the
    handler calls Gemini's streamGenerateContent SSE endpoint and proxies the
    text to the client as its own SSE stream (text/event-stream): first a
@@ -33,6 +43,7 @@
 /// <reference types="node" />
 import { CORPUS_DOCS, chunksFor, docName, headingFor, type Chunk, type Lang } from '../shared/corpus.js';
 import EMBEDDINGS from '../shared/corpus.embeddings.json' with { type: 'json' };
+import { matchUserChunks, supabaseEnv, type UserMatch } from './_supabase.js';
 
 export const config = { maxDuration: 60, supportsResponseStreaming: true };
 
@@ -50,6 +61,9 @@ const EMBED_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMB
 const TOP_K = 4;
 // Abort the upstream call after this long so we never ride Vercel's hard limit.
 const UPSTREAM_TIMEOUT_MS = 25_000;
+// Supabase gets a short leash of its own: if the free-tier instance is asleep
+// or slow, the answer must still go out on time with the fixed corpus only.
+const SUPABASE_TIMEOUT_MS = 4_000;
 // Retry transient free-tier errors (503 high demand, 429 rate limit) a couple
 // of times with a short backoff, all inside the abort budget above.
 const MAX_ATTEMPTS = 3;
@@ -113,6 +127,11 @@ interface Cite {
   docId: string;
   page: number;
   snippet: string;
+  /** Set only for user-uploaded passages: display metadata the frontend can't
+      resolve from shared/corpus.ts. */
+  docName?: string;
+  ext?: string;
+  pages?: number;
 }
 
 /** A passage that made the top-k cut, reported back to the UI. `score` is the
@@ -121,6 +140,40 @@ interface Retrieved {
   docId: string;
   page: number;
   score?: number;
+  /** Display name for user-uploaded docs (unknown to the frontend corpus). */
+  docName?: string;
+}
+
+/** A prompt passage: a fixed-corpus chunk or one of the visitor's uploaded
+    chunks, normalized so prompt building and citation building treat both the
+    same. `user` is present only for uploaded passages. */
+interface Passage {
+  docId: string;
+  page: number;
+  text: string;
+  docName: string;
+  heading?: string;
+  user?: { ext: string; pages: number };
+}
+
+function corpusPassage(chunk: Chunk, lang: Lang): Passage {
+  return {
+    docId: chunk.docId,
+    page: chunk.page,
+    text: chunk.text,
+    docName: docName(chunk.docId, lang),
+    heading: headingFor(chunk.docId, chunk.page, lang) || undefined,
+  };
+}
+
+function userPassage(m: UserMatch): Passage {
+  return {
+    docId: m.doc_id,
+    page: m.page,
+    text: m.text,
+    docName: m.doc_name,
+    user: { ext: 'PDF', pages: m.pages },
+  };
 }
 
 interface GeminiResponse {
@@ -223,20 +276,25 @@ function rankChunks(qVec: number[], lang: Lang): Array<{ chunk: Chunk; score: nu
     .slice(0, TOP_K);
 }
 
-function buildSystemPrompt(lang: Lang, passagesIn: Chunk[]): string {
+function buildSystemPrompt(lang: Lang, passagesIn: Passage[]): string {
   const language = lang === 'en' ? 'English' : 'Spanish';
 
-  const docList = CORPUS_DOCS.map((d) => {
+  const corpusList = CORPUS_DOCS.map((d) => {
     const pages = typeof d.pages === 'number' ? `${d.pages} pages` : String(d.pages);
     return `- "${d.name[lang] ?? d.name.en}" (${d.ext}, ${pages})`;
-  }).join('\n');
+  });
+  // Uploaded docs that made the top-k join the library list so the model can
+  // answer questions about them (name, page count) like any other source.
+  const userList = [
+    ...new Map(
+      passagesIn.filter((p) => p.user).map((p) => [p.docId, `- "${p.docName}" (${p.user?.ext}, ${p.user?.pages} pages)`]),
+    ).values(),
+  ];
+  const docList = [...corpusList, ...userList].join('\n');
 
   const passages = passagesIn
     .map((c, i) => {
-      const heading = headingFor(c.docId, c.page, lang);
-      const where = heading
-        ? `${docName(c.docId, lang)}, p${c.page} - ${heading}`
-        : `${docName(c.docId, lang)}, p${c.page}`;
+      const where = c.heading ? `${c.docName}, p${c.page} - ${c.heading}` : `${c.docName}, p${c.page}`;
       return `[${i + 1}] (${where})\n${c.text}`;
     })
     .join('\n\n');
@@ -267,7 +325,7 @@ const CITE_RE = /\[\[(\d+)\]\]/g;
     passages. Renumbers to 1..k in order of first appearance and drops
     out-of-range markers, so each snippet is the exact passage text (drawer
     invariant). */
-function buildCites(rawText: string, chunks: Chunk[]): { text: string; cites: Cite[] } {
+function buildCites(rawText: string, chunks: Passage[]): { text: string; cites: Cite[] } {
   const renum = new Map<number, number>();
   const order: number[] = [];
 
@@ -289,7 +347,13 @@ function buildCites(rawText: string, chunks: Chunk[]): { text: string; cites: Ci
 
   const cites: Cite[] = order.map((p) => {
     const c = chunks[p - 1];
-    return { n: renum.get(p) as number, docId: c.docId, page: c.page, snippet: c.text };
+    const cite: Cite = { n: renum.get(p) as number, docId: c.docId, page: c.page, snippet: c.text };
+    if (c.user) {
+      cite.docName = c.docName;
+      cite.ext = c.user.ext;
+      cite.pages = c.user.pages;
+    }
+    return cite;
   });
 
   return { text, cites };
@@ -336,15 +400,32 @@ async function* sseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<stri
 }
 
 /** Vercel auto-parses a JSON body into req.body; tolerate a raw string too. */
-function readBody(raw: unknown): { question?: unknown; lang?: unknown; stream?: unknown } {
+function readBody(raw: unknown): { question?: unknown; lang?: unknown; stream?: unknown; sessionId?: unknown } {
   if (typeof raw === 'string') {
     try {
-      return JSON.parse(raw) as { question?: unknown; lang?: unknown; stream?: unknown };
+      return JSON.parse(raw) as { question?: unknown; lang?: unknown; stream?: unknown; sessionId?: unknown };
     } catch {
       return {};
     }
   }
-  return (raw ?? {}) as { question?: unknown; lang?: unknown; stream?: unknown };
+  return (raw ?? {}) as { question?: unknown; lang?: unknown; stream?: unknown; sessionId?: unknown };
+}
+
+/** The visitor's uploaded chunks ranked against the SAME question vector
+    (match_user_chunks RPC: cosine over pgvector, session + lang scoped).
+    Failures and slowness degrade to [] - the fixed corpus always answers. */
+async function userTopK(qVec: number[], sessionId: string, lang: Lang): Promise<UserMatch[]> {
+  if (!supabaseEnv()) return [];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SUPABASE_TIMEOUT_MS);
+  try {
+    return await matchUserChunks(qVec, sessionId, lang, TOP_K, controller.signal);
+  } catch (err) {
+    console.warn('[api/chat] user-chunk retrieval unavailable:', err instanceof Error ? err.message : err);
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export default async function handler(req: VercelReq, res: VercelRes): Promise<void> {
@@ -356,6 +437,7 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
   const b = readBody(req.body);
   const question = typeof b.question === 'string' ? b.question.trim() : '';
   const lang = asLang(b.lang);
+  const sessionId = typeof b.sessionId === 'string' ? b.sessionId.trim().slice(0, 80) : '';
   if (!question) {
     res.status(400).json({ error: 'missing_question' });
     return;
@@ -381,16 +463,31 @@ export default async function handler(req: VercelReq, res: VercelRes): Promise<v
 
   try {
     // Retrieval: embed the question, rank same-language chunks by cosine
-    // similarity, keep the top-k. On embed failure (or stale/missing vectors)
-    // fall back to the phase-1 behavior: every passage of the language.
+    // similarity, keep the top-k. With a sessionId, the visitor's uploaded
+    // chunks compete in the same ranking (cosine scores on both sides) and
+    // the global top-k goes into the prompt. On embed failure (or
+    // stale/missing vectors) fall back to the phase-1 behavior: every corpus
+    // passage of the language.
     const qVec = await embedQuestion(question, apiKey, controller.signal);
     const ranked = qVec ? rankChunks(qVec, lang) : [];
-    const passages = ranked.length > 0 ? ranked.map((r) => r.chunk) : chunksFor(lang);
+    const userRanked = qVec && sessionId ? await userTopK(qVec, sessionId, lang) : [];
+    const merged = [
+      ...ranked.map((r) => ({ passage: corpusPassage(r.chunk, lang), score: r.score })),
+      ...userRanked.map((m) => ({ passage: userPassage(m), score: m.score })),
+    ]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, TOP_K);
+    const passages: Passage[] = merged.length > 0 ? merged.map((m) => m.passage) : chunksFor(lang).map((c) => corpusPassage(c, lang));
     const retrieved: Retrieved[] =
-      ranked.length > 0
-        ? ranked.map((r) => ({ docId: r.chunk.docId, page: r.chunk.page, score: Number(r.score.toFixed(4)) }))
+      merged.length > 0
+        ? merged.map((m) => ({
+            docId: m.passage.docId,
+            page: m.passage.page,
+            score: Number(m.score.toFixed(4)),
+            ...(m.passage.user ? { docName: m.passage.docName } : {}),
+          }))
         : passages.map((c) => ({ docId: c.docId, page: c.page }));
-    if (ranked.length === 0) console.warn('[api/chat] retrieval unavailable, using full corpus');
+    if (merged.length === 0) console.warn('[api/chat] retrieval unavailable, using full corpus');
 
     const payload = JSON.stringify({
       systemInstruction: { parts: [{ text: buildSystemPrompt(lang, passages) }] },

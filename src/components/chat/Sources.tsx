@@ -36,12 +36,12 @@ export function Sources({ cites, lit, setLit, onOpen }: SourcesProps) {
             >
               <span className="cite-head">
                 <span className="cite-n">{c.n}</span>
-                <span className="cite-doc">{doc ? pick(doc.name) : c.docId}</span>
+                <span className="cite-doc">{doc ? pick(doc.name) : c.docName ?? c.docId}</span>
               </span>
               <span className="cite-snip">{c.snippet}</span>
               <span className="cite-foot">
                 <span className="cite-meta">
-                  {doc ? doc.ext : 'DOC'}
+                  {doc ? doc.ext : c.ext ?? 'DOC'}
                   <span className="dot-sep" />
                   {typeof c.page === 'number' ? t('pageShort', { n: c.page }) : c.page}
                 </span>

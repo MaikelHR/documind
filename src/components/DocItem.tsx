@@ -44,6 +44,10 @@ export function DocItem({ doc, active, onSelect, onDelete }: DocItemProps) {
               {t('indexing')} · {doc.progress ?? 0}%
             </div>
           </>
+        ) : doc.error ? (
+          <div className="doc-sub" style={{ color: '#e5484d' }}>
+            {doc.error}
+          </div>
         ) : (
           <div className="doc-sub">
             <span>{pageLabel}</span>

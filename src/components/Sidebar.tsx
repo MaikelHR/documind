@@ -11,7 +11,7 @@ interface SidebarProps {
   activeDocId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
-  onAdd: (name?: string) => void;
+  onAdd: (file?: File | string) => void;
   onNewChat: () => void;
   query: string;
   setQuery: (q: string) => void;

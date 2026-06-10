@@ -5,7 +5,7 @@ import { DropZone } from './DropZone';
 import { Ic } from './icons';
 
 interface EmptyStateProps {
-  onUpload: () => void;
+  onUpload: (file?: File | string) => void;
   onLoadSamples: () => void;
 }
 

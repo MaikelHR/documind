@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { usePick } from './i18n/usePick';
 import type { PickFn } from './i18n/usePick';
 import { buildUnits } from './lib/markup';
-import { RateLimitedError, requestAnswer } from './lib/api';
+import { IngestError, RateLimitedError, ingestDocument, requestAnswer } from './lib/api';
 import { DOCS, SEED, SUGGESTIONS, UPLOAD_NAMES, pickAnswer } from './data/sample';
 import type { AiMessage, Cite, Direction, Doc, Lang, Message, Mode, Retrieved, UserMessage } from './types';
 import { TopBar } from './components/TopBar';
@@ -16,6 +16,10 @@ import { Landing } from './components/Landing';
 import { Message as MessageView } from './components/chat/Message';
 import { SourceDrawer } from './components/chat/SourceDrawer';
 import { Ic } from './components/icons';
+
+let uploadSeq = 0;
+/** Sidebar id for an upload in flight (module counter: stable across renders). */
+const nextUploadId = () => 'up' + ++uploadSeq;
 
 function nowTime(): string {
   const d = new Date();
@@ -254,7 +258,42 @@ export default function App() {
     setStreaming(false);
   };
 
-  const addDoc = (name?: string) => {
+  // Real upload: POST the PDF to /api/ingest (parse -> chunk -> embed ->
+  // pgvector) with coarse progress, then surface it as a queryable source
+  // with its real page count. Rejections (size, quota, scanned PDF) show a
+  // brief error on the item; if the API is unreachable (plain `vite dev`),
+  // fall back to the simulated indexing below.
+  const addRealDoc = async (file: File) => {
+    const tempId = nextUploadId();
+    const doc: Doc = { id: tempId, name: file.name, ext: 'PDF', pages: 0, kind: 'pdf', indexed: false, indexing: true, progress: 8, content: {} };
+    setDocs((d) => [doc, ...d]);
+    const patch = (p: Partial<Doc>) => setDocs((d) => d.map((x) => (x.id === tempId ? { ...x, ...p } : x)));
+    try {
+      const res = await ingestDocument(file, lang, (pct) => patch({ progress: pct }));
+      setDocs((d) => d.map((x) => (x.id === tempId ? { ...x, id: res.docId, pages: res.pages, indexing: false, indexed: true, progress: 100 } : x)));
+    } catch (err) {
+      if (err instanceof IngestError) {
+        const key =
+          err.code === 'file_too_large' || err.code === 'too_many_pages' || err.code === 'doc_too_large'
+            ? 'upTooBig'
+            : err.code === 'rate_limited'
+              ? 'upLimit'
+              : err.code === 'no_text' || err.code === 'pdf_parse_failed'
+                ? 'upNoText'
+                : 'upFailed';
+        patch({ indexing: false, error: t(key) });
+        setTimeout(() => setDocs((d) => d.filter((x) => x.id !== tempId)), 5000);
+        return;
+      }
+      if (import.meta.env.DEV) console.warn('ingest API unreachable, simulating:', err);
+      setDocs((d) => d.filter((x) => x.id !== tempId));
+      addSimDoc(file.name);
+    }
+  };
+
+  // Simulated indexing - kept ONLY as the no-backend fallback (plain `vite
+  // dev`) and for non-PDF formats, like the simulated answer bank.
+  const addSimDoc = (name?: string) => {
     const pool = UPLOAD_NAMES[lang] || UPLOAD_NAMES.en;
     const nm = name || pool[Math.floor(Math.random() * pool.length)];
     const ext = (nm.split('.').pop() || 'pdf').toUpperCase().slice(0, 4);
@@ -282,6 +321,16 @@ export default function App() {
         setDocs((d) => d.map((x) => (x.id === id ? { ...x, progress: p } : x)));
       }
     }, 230);
+  };
+
+  // PDFs go through the real pipeline; anything else (or a bare name from the
+  // demo paths) keeps the simulated indexing.
+  const addDoc = (input?: File | string) => {
+    if (input instanceof File && /\.pdf$/i.test(input.name)) {
+      void addRealDoc(input);
+      return;
+    }
+    addSimDoc(input instanceof File ? input.name : input);
   };
 
   const deleteDoc = (id: string) => {
@@ -383,7 +432,7 @@ export default function App() {
             </div>
 
             {docs.length === 0 ? (
-              <EmptyState onUpload={() => addDoc()} onLoadSamples={loadSamples} />
+              <EmptyState onUpload={addDoc} onLoadSamples={loadSamples} />
             ) : (
               <>
                 <div className="thread scroll" ref={threadRef}>

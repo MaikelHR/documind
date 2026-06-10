@@ -31,9 +31,16 @@ export function Retrieval({ retrieved }: { retrieved?: Retrieved[] }) {
     // Still embedding the question / ranking passages on the server.
     steps = [searchStep, { node: <>{t('rRetrieving')}</>, done: false }];
   } else {
-    const ids = [...new Set(retrieved.map((r) => r.docId))];
-    const docsUsed = ids.map(docById).filter((d): d is Doc => Boolean(d));
-    const names = docsUsed.map((d) => pick(d.name).replace(/\.[a-z]+$/i, '')).join(', ');
+    // One display name per docId: the local corpus when it knows the doc,
+    // otherwise the docName the backend sent (user uploads).
+    const byId = new Map<string, string>();
+    for (const r of retrieved) {
+      if (byId.has(r.docId)) continue;
+      const doc: Doc | undefined = docById(r.docId);
+      const nm = doc ? pick(doc.name) : r.docName;
+      if (nm) byId.set(r.docId, nm.replace(/\.[a-z]+$/i, ''));
+    }
+    const names = [...byId.values()].join(', ');
     const nP = retrieved.length;
     steps = [
       searchStep,
