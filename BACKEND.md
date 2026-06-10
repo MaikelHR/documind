@@ -1,16 +1,17 @@
 # DocuMind - Roadmap del backend RAG (por fases) · 100% gratis con Gemini
 
-> **Estado actual (2026-06-09): Fases 1, 4a, 3 y 2 HECHAS, verificadas y en producción**
+> **Estado final (2026-06-10): LAS 5 FASES HECHAS, verificadas y en producción**
 > (documind-lake.vercel.app): respuestas reales de Gemini con retrieval semántico (embed +
 > coseno top-4), streaming SSE token a token con Stop real, citas exactas reconstruidas en el
-> server, rate-limit por IP + tope diario. Si la API falla, el frontend cae al banco simulado.
+> server, rate-limit por IP + tope diario, y **subida real de PDFs** (parse -> chunk -> embed
+> -> Supabase pgvector, scope por sesión anónima, expiración a 7 días, drawer con páginas
+> reales vía /api/page, keep-alive diario por cron). Si la API falla, el frontend cae al
+> banco simulado.
 >
-> Pendiente: solo la **Fase 5 (uploads reales)**.
->
-> Cada fase se hace en **un chat nuevo** (Claude Code), en la rama `feat/backend`, y se
-> verifica/mergea a `main` en el chat de verificación. OJO: los previews de Vercel tienen
-> Deployment Protection (401 sin sesión del navegador) -> la verificación por terminal se hace
-> con tests locales del handler (mock req/res + key de .env.local) y el live-test en prod.
+> Este documento queda como registro del proceso. OJO para verificaciones futuras: los
+> previews de Vercel tienen Deployment Protection (401 sin sesión del navegador) -> verificar
+> con tests locales del handler (mock req/res + keys de .env.local) y live-test en prod.
+> Supabase rechaza la secret key si el User-Agent parece navegador (curl/node OK).
 
 ---
 
@@ -55,7 +56,8 @@
 2. **Fase 4a** ✅ HECHA - rate-limit por IP + tope diario; `@google/genai` desinstalado.
 3. **Fase 3** ✅ HECHA - retrieval real (gemini-embedding-001 768d + coseno top-4; `npm run embed`).
 4. **Fase 2** ✅ HECHA - streaming SSE real con Stop real y renumeración de [[n]] al vuelo.
-5. **Fase 5** - Subida real de documentos (con base vectorial). ÚNICA pendiente.
+5. **Fase 5** ✅ HECHA - uploads reales: unpdf + batchEmbedContents + pgvector (user_chunks),
+   sessionId anónimo, /api/page para el drawer, expiración 7 días, cron keep-alive diario.
 
 ---
 
@@ -108,7 +110,7 @@ Implementa el streaming real (lee api/chat.ts, src/lib/api.ts y App.tsx primero)
 Verificación: el texto fluye en tiempo real, Stop corta de verdad, citas/drawer correctos en es y en. build+lint+type-check nodenext en verde, commit, push (preview).
 ```
 
-## 🟦 Fase 5 - Subida real de documentos (ÚNICA PENDIENTE)
+## ✅ Fase 5 - Subida real de documentos - HECHA (prompt original, como referencia)
 
 > **Vector DB = Supabase (Postgres + pgvector, free tier) + keep-alive automático.**
 > El free tier de Supabase se pausa tras ~7 días sin actividad en la base (restore manual
@@ -177,7 +179,8 @@ scripts/embed-corpus.mjs     # (Fase 3) offline, corre una vez
 ```
 
 ## Para el CV
-Ya puedes decir con honestidad: **"RAG completo con citas verificables: retrieval semántico
-(embeddings Gemini + coseno top-k), streaming SSE en tiempo real y rate-limiting - React +
-TypeScript + Tailwind, serverless en Vercel."**
-Al cerrar la **Fase 5** puedes sumarle: **"con ingesta de documentos del usuario (Postgres + pgvector)"**.
+Ya puedes decir con honestidad, todo verificado en producción:
+**"RAG completo con citas verificables: ingesta de documentos del usuario (PDF -> chunks ->
+embeddings -> Postgres/pgvector), retrieval semántico (Gemini embeddings + coseno top-k),
+streaming SSE en tiempo real, rate-limiting y scope por sesión - React + TypeScript +
+Tailwind, serverless en Vercel."**
