@@ -91,3 +91,13 @@ export interface AiMessage {
 }
 
 export type Message = UserMessage | AiMessage;
+
+/** A saved conversation in the sidebar history (persisted to localStorage).
+    Created on the first question the user sends in a chat. */
+export interface ChatEntry {
+  id: string;
+  /** The first question, truncated - the list label. */
+  title: string;
+  createdAt: number;
+  messages: Message[];
+}

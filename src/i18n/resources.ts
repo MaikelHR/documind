@@ -8,6 +8,7 @@ export const es = {
   theme: 'Tema', toLight: 'Cambiar a claro', toDark: 'Cambiar a oscuro', langLabel: 'Idioma',
   /* sidebar */
   newChat: 'Nuevo chat', searchPh: 'Buscar documentos...', sources: 'Fuentes',
+  chats: 'Chats', delChat: 'Eliminar chat',
   noMatch: 'Ningún documento coincide con “{q}”.',
   pages: 'páginas', note: 'Nota', indexed: 'Indexado', indexing: 'Indexando',
   dzDrag: 'Suelta para subir', dzIdle: 'Arrastra archivos aquí, o ', dzBrowse: 'explora',
@@ -63,6 +64,7 @@ export const es = {
 export const en: typeof es = {
   theme: 'Theme', toLight: 'Switch to light', toDark: 'Switch to dark', langLabel: 'Language',
   newChat: 'New chat', searchPh: 'Search documents...', sources: 'Sources',
+  chats: 'Chats', delChat: 'Delete chat',
   noMatch: 'No documents match “{q}”.',
   pages: 'pages', note: 'Note', indexed: 'Indexed', indexing: 'Indexing',
   dzDrag: 'Release to upload', dzIdle: 'Drag files here, or ', dzBrowse: 'browse',

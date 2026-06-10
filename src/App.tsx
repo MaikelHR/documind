@@ -7,7 +7,7 @@ import type { PickFn } from './i18n/usePick';
 import { buildUnits } from './lib/markup';
 import { IngestError, RateLimitedError, deleteUploadedDoc, fetchSessionDocs, ingestDocument, requestAnswer } from './lib/api';
 import { DOCS, SEED, SUGGESTIONS, UPLOAD_NAMES, pickAnswer } from './data/sample';
-import type { AiMessage, Cite, Direction, Doc, Lang, Message, Mode, Retrieved, UserMessage } from './types';
+import type { AiMessage, ChatEntry, Cite, Direction, Doc, Lang, Message, Mode, Retrieved, UserMessage } from './types';
 import { TopBar } from './components/TopBar';
 import { Sidebar } from './components/Sidebar';
 import { Composer } from './components/Composer';
@@ -40,25 +40,45 @@ function buildSeed(pick: PickFn): Message[] {
   });
 }
 
-/* The conversation survives page reloads via localStorage (like theme/lang/
-   session). Saved per language: switching languages still rebuilds the seeded
-   demo, as before. A turn cut off mid-stream is dropped on restore instead of
+/* Chat history lives in localStorage (like theme/lang/session): a list of
+   saved conversations plus the active one. A chat earns its history entry on
+   the first question the user sends (the seeded demo and untouched new chats
+   stay ephemeral). The active conversation and history survive page reloads;
+   switching languages still resets the active view to the seeded demo, but
+   saved chats are kept (they are user content in whatever language it was
+   written). A turn cut off mid-stream is dropped on restore instead of
    resurfacing as a broken bubble. */
-const CHAT_KEY = 'dm-chat-v1';
+const CHAT_KEY = 'dm-chats-v2';
 const CHAT_MAX_MESSAGES = 40;
+const MAX_CHATS = 15;
 
-function loadSavedChat(lang: Lang): Message[] | null {
+interface SavedChats {
+  lang?: string;
+  chats?: ChatEntry[];
+  active?: { id: string | null; messages?: Message[] };
+}
+
+/** Settle restored messages: rebuild units from text, drop half-streamed turns. */
+function sanitizeMessages(list: Message[]): Message[] {
+  return list.flatMap((m): Message[] => {
+    if (m.role !== 'ai') return [m];
+    if (!m.text) return []; // cut off before any text arrived
+    const units = buildUnits(m.text); // rebuild instead of trusting storage
+    return [{ ...m, units, revealed: units.length, phase: 'done' }];
+  });
+}
+
+function loadSaved(): SavedChats | null {
   try {
     const raw = localStorage.getItem(CHAT_KEY);
-    if (!raw) return null; // first visit -> seeded demo
-    const saved = JSON.parse(raw) as { lang?: string; messages?: Message[] };
-    if (saved.lang !== lang || !Array.isArray(saved.messages)) return null;
-    return saved.messages.flatMap((m): Message[] => {
-      if (m.role !== 'ai') return [m];
-      if (!m.text) return []; // cut off before any text arrived
-      const units = buildUnits(m.text); // rebuild instead of trusting storage
-      return [{ ...m, units, revealed: units.length, phase: 'done' }];
-    });
+    if (raw) return JSON.parse(raw) as SavedChats;
+    // One-shot migration from the single-conversation format.
+    const v1 = localStorage.getItem('dm-chat-v1');
+    if (v1) {
+      const old = JSON.parse(v1) as { lang?: string; messages?: Message[] };
+      return { lang: old.lang, chats: [], active: { id: null, messages: old.messages } };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -78,7 +98,24 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [drawer, setDrawer] = useState<{ open: boolean; cite: Cite | null }>({ open: false, cite: null });
   const [streaming, setStreaming] = useState(false);
-  const [messages, setMessages] = useState<Message[]>(() => loadSavedChat(lang) ?? buildSeed(pick));
+  const [chats, setChats] = useState<ChatEntry[]>(() => {
+    const s = loadSaved();
+    return Array.isArray(s?.chats) ? s.chats.filter((c) => c && typeof c.id === 'string' && Array.isArray(c.messages)) : [];
+  });
+  const [activeChatId, setActiveChatId] = useState<string | null>(() => {
+    const s = loadSaved();
+    if (!s || s.lang !== lang) return null;
+    const id = s.active?.id ?? null;
+    return id && (s.chats ?? []).some((c) => c.id === id) ? id : null;
+  });
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const s = loadSaved();
+    if (!s || s.lang !== lang) return buildSeed(pick); // first visit, or language changed since
+    const id = s.active?.id ?? null;
+    const entry = id ? (s.chats ?? []).find((c) => c.id === id) : undefined;
+    if (entry) return sanitizeMessages(entry.messages);
+    return Array.isArray(s.active?.messages) ? sanitizeMessages(s.active.messages) : buildSeed(pick);
+  });
 
   const threadRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -110,20 +147,35 @@ export default function App() {
     clearTimeout(revealTimerRef.current);
     setStreaming(false);
     setDrawer({ open: false, cite: null });
+    // Keep the saved history (user content in its own language); only the
+    // active view resets to the seeded demo of the new language.
+    setChats((cs) => (activeChatId ? cs.map((c) => (c.id === activeChatId ? { ...c, messages } : c)) : cs));
+    setActiveChatId(null);
     setMessages(docs.length === 0 ? [] : buildSeed(pick));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang]);
 
-  // chat: persist once each turn settles (not on every streamed chunk), so a
-  // reload restores the conversation exactly where it ended
+  // chat history: persist once each turn settles (not on every streamed
+  // chunk). The active chat's entry is patched at write time, so a reload
+  // restores both the list and the conversation exactly where it ended.
   useEffect(() => {
     if (streaming) return;
     try {
-      localStorage.setItem(CHAT_KEY, JSON.stringify({ lang, messages: messages.slice(-CHAT_MAX_MESSAGES) }));
+      const patched = activeChatId
+        ? chats.map((c) => (c.id === activeChatId ? { ...c, messages: messages.slice(-CHAT_MAX_MESSAGES) } : c))
+        : chats;
+      localStorage.setItem(
+        CHAT_KEY,
+        JSON.stringify({
+          lang,
+          chats: patched,
+          active: { id: activeChatId, messages: activeChatId ? [] : messages.slice(-CHAT_MAX_MESSAGES) },
+        }),
+      );
     } catch {
-      /* storage full or blocked - the chat just won't survive reloads */
+      /* storage full or blocked - history just won't survive reloads */
     }
-  }, [messages, streaming, lang]);
+  }, [messages, streaming, lang, chats, activeChatId]);
 
   // keep thread pinned to latest only when new messages arrive or while streaming
   const prevLenRef = useRef(messages.length);
@@ -237,6 +289,14 @@ export default function App() {
     const aiId = 'a' + Date.now();
     const aiMsg: AiMessage = { id: aiId, role: 'ai', phase: 'thinking', text: '', cites: [], units: [], revealed: 0, time: tm };
     setMessages((m) => [...m, userMsg, aiMsg]);
+    // First question of an ephemeral chat (seeded demo or a fresh one): it
+    // earns its history entry, titled by this question. Its messages are
+    // patched in on switch/persist.
+    if (!activeChatId) {
+      const chatId = 'c' + Date.now();
+      setChats((cs) => [{ id: chatId, title: text.slice(0, 64), createdAt: Date.now(), messages: [] }, ...cs].slice(0, MAX_CHATS));
+      setActiveChatId(chatId);
+    }
     setStreaming(true);
     streamIdRef.current = aiId;
 
@@ -425,10 +485,35 @@ export default function App() {
     clearInterval(intervalRef.current);
     clearTimeout(revealTimerRef.current);
     setStreaming(false);
+    // The conversation we're leaving stays in the history (patched here so an
+    // in-app switch back to it is up to date without a reload).
+    setChats((cs) => (activeChatId ? cs.map((c) => (c.id === activeChatId ? { ...c, messages } : c)) : cs));
+    setActiveChatId(null);
     setMessages([]);
     setDrawer({ open: false, cite: null });
     setActiveDocId(null);
     setSidebarOpen(false);
+  };
+
+  // Return to a saved chat. Blocked mid-answer (Stop first) so an in-flight
+  // stream can't land in the wrong conversation.
+  const selectChat = (id: string) => {
+    if (streaming || id === activeChatId) return;
+    const target = chats.find((c) => c.id === id);
+    if (!target) return;
+    clearInterval(intervalRef.current);
+    clearTimeout(revealTimerRef.current);
+    setChats((cs) => (activeChatId ? cs.map((c) => (c.id === activeChatId ? { ...c, messages } : c)) : cs));
+    setActiveChatId(id);
+    setMessages(sanitizeMessages(target.messages));
+    setDrawer({ open: false, cite: null });
+    setActiveDocId(null);
+    setSidebarOpen(false);
+  };
+
+  const deleteChat = (id: string) => {
+    setChats((cs) => cs.filter((c) => c.id !== id));
+    if (id === activeChatId) newChat(); // deleting the open chat -> clean slate
   };
 
   const loadSamples = () => {
@@ -481,6 +566,10 @@ export default function App() {
               setSidebarOpen(false);
             }}
             onNewChat={newChat}
+            chats={chats}
+            activeChatId={activeChatId}
+            onSelectChat={selectChat}
+            onDeleteChat={deleteChat}
             query={query}
             setQuery={setQuery}
             open={sidebarOpen}

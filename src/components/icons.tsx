@@ -11,6 +11,7 @@ import {
   FileText,
   Layers,
   Menu,
+  MessageSquare,
   Moon,
   PenLine,
   Plus,
@@ -52,4 +53,5 @@ export const Ic = {
   chevron: ChevronDown,
   file: FileText,
   edit: PenLine,
+  chat: MessageSquare,
 } satisfies Record<string, LucideIcon>;
