@@ -120,9 +120,34 @@ Verificación: el texto fluye en tiempo real, Stop corta de verdad, citas/drawer
 > poner `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` en Vercel (Production+Preview,
 > Sensitive) y en `.env.local`. La service-role key es SOLO de servidor, como la de Gemini.
 
+> **El esquema SQL YA está aplicado en Supabase** (el usuario lo corrió en el SQL Editor).
+> NO lo rediseñes: conforma el código a él. Es exactamente este:
+>
+> ```sql
+> create extension if not exists vector;
+> create table if not exists user_chunks (
+>   id bigint generated always as identity primary key,
+>   session_id text not null, doc_id text not null, doc_name text not null,
+>   ext text not null default 'PDF', pages int not null, page int not null,
+>   lang text not null, text text not null, embedding vector(768) not null,
+>   created_at timestamptz not null default now()
+> );
+> create index if not exists user_chunks_embedding_idx on user_chunks using hnsw (embedding vector_cosine_ops);
+> create index if not exists user_chunks_session_idx on user_chunks (session_id, doc_id, page);
+> create index if not exists user_chunks_created_idx on user_chunks (created_at);
+> alter table user_chunks enable row level security;  -- sin políticas: solo service_role entra
+> create or replace function match_user_chunks(query_embedding vector(768), session text, qlang text, k int default 4)
+> returns table (doc_id text, doc_name text, pages int, page int, text text, score float)
+> language sql stable as $$
+>   select c.doc_id, c.doc_name, c.pages, c.page, c.text, 1 - (c.embedding <=> query_embedding) as score
+>   from user_chunks c where c.session_id = session and c.lang = qlang
+>   order by c.embedding <=> query_embedding limit k;
+> $$;
+> ```
+
 ```
 Implementa la subida real de documentos.
-1. Persistencia: Supabase (Postgres + pgvector, free tier) vía la REST de PostgREST con fetch (sin SDK, mismo espíritu que Gemini; si el SDK @supabase/supabase-js resulta más simple, se permite SOLO en api/). Tabla user_chunks { id, session_id text, doc_id text, doc_name text, ext text, pages int, page int, lang text, text text, embedding vector(768), created_at timestamptz default now() } + índice hnsw coseno + una función SQL `match_user_chunks(query_embedding, session, lang, k)` (rpc) para el top-k. Keys SOLO en el servidor. Dame el SQL completo para pegar en el editor de Supabase.
+1. Persistencia: Supabase (Postgres + pgvector, free tier) vía la REST de PostgREST con fetch (sin SDK, mismo espíritu que Gemini; si el SDK @supabase/supabase-js resulta más simple, se permite SOLO en api/). El esquema YA EXISTE (bloque sql de arriba): tabla user_chunks + rpc match_user_chunks. Inserts: POST $SUPABASE_URL/rest/v1/user_chunks (headers apikey + Authorization Bearer con la service_role). RPC: POST $SUPABASE_URL/rest/v1/rpc/match_user_chunks. Keys SOLO en el servidor.
 2. api/ingest.ts (handler Node-style, imports .js, config maxDuration 60): recibe { sessionId, name, data (PDF en base64) } -> límite 4 MB (el body de una función Vercel admite ~4.5 MB) -> extrae texto por página (dependencia permitida: unpdf, serverless-friendly) -> chunk por párrafo (mismo criterio que shared/corpus.ts) -> embed con gemini-embedding-001 (REST, RETRIEVAL_DOCUMENT, outputDimensionality 768 - MISMOS valores que api/chat.ts) -> insert por lote a user_chunks. Responde { docId, name, pages, chunks }. Rate-limit propio (p. ej. 3 uploads/día por IP) reutilizando el patrón de api/chat.ts. Limpieza sin cron: en cada ingest borra los user_chunks con created_at > 7 días (uploads de demo = efímeros; documéntalo en el README).
 3. KEEP-ALIVE (evita la pausa por inactividad del free tier): api/keepalive.ts (handler Node-style) que hace una consulta trivial a user_chunks (p. ej. select id limit 1) y responde 200; + vercel.json con { "crons": [{ "path": "/api/keepalive", "schedule": "0 12 * * *" }] } (el plan Hobby permite crons diarios). Protégelo: si existe process.env.CRON_SECRET, exige el header Authorization: Bearer $CRON_SECRET (Vercel lo manda solo en sus crons) y responde 401 si no coincide.
 4. Alcance por visitante SIN auth: el frontend genera un sessionId aleatorio persistido en localStorage ('dm-session') y lo manda en /api/ingest y /api/chat. Los docs subidos solo se recuperan para su session_id; el corpus fijo es global.
