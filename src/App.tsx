@@ -483,7 +483,7 @@ export default function App() {
                         <p>{t('teP')}</p>
                       </div>
                     ) : (
-                      messages.map((m) => <MessageView key={m.id} msg={m} onOpen={openSource} onRegen={regen} />)
+                      messages.map((m) => <MessageView key={m.id} msg={m} onOpen={openSource} onRegen={regen} docCount={scopeCount} />)
                     )}
                   </div>
                 </div>

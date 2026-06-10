@@ -6,11 +6,13 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePick } from '../../i18n/usePick';
-import { DOCS, docById } from '../../data/sample';
+import { docById } from '../../data/sample';
 import type { Doc, Retrieved } from '../../types';
 import { Ic } from '../icons';
 
-export function Retrieval({ retrieved }: { retrieved?: Retrieved[] }) {
+/** `docCount` is the LIVE number of indexed sidebar docs (fixed corpus +
+    uploads), so the step matches what the user actually sees. */
+export function Retrieval({ retrieved, docCount }: { retrieved?: Retrieved[]; docCount: number }) {
   const { t } = useTranslation();
   const pick = usePick();
 
@@ -19,7 +21,7 @@ export function Retrieval({ retrieved }: { retrieved?: Retrieved[] }) {
       <>
         {t('rSearch')}{' '}
         <b>
-          {DOCS.length} {t('rDocs')}
+          {docCount} {t('rDocs')}
         </b>
       </>
     ),

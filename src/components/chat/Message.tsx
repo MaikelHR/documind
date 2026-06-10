@@ -14,9 +14,11 @@ interface MessageProps {
   msg: Msg;
   onOpen: (c: Cite) => void;
   onRegen: (id: string) => void;
+  /** Live indexed-doc count for the retrieval "searching across N" step. */
+  docCount: number;
 }
 
-export function Message({ msg, onOpen, onRegen }: MessageProps) {
+export function Message({ msg, onOpen, onRegen, docCount }: MessageProps) {
   const { t } = useTranslation();
   const [lit, setLit] = useState<number | null>(null);
 
@@ -50,7 +52,7 @@ export function Message({ msg, onOpen, onRegen }: MessageProps) {
         <span className="time">{msg.time}</span>
       </div>
       {msg.phase === 'thinking' ? (
-        <Retrieval retrieved={msg.retrieved} />
+        <Retrieval retrieved={msg.retrieved} docCount={docCount} />
       ) : (
         <AiBubble
           units={units}
