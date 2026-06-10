@@ -40,6 +40,30 @@ function buildSeed(pick: PickFn): Message[] {
   });
 }
 
+/* The conversation survives page reloads via localStorage (like theme/lang/
+   session). Saved per language: switching languages still rebuilds the seeded
+   demo, as before. A turn cut off mid-stream is dropped on restore instead of
+   resurfacing as a broken bubble. */
+const CHAT_KEY = 'dm-chat-v1';
+const CHAT_MAX_MESSAGES = 40;
+
+function loadSavedChat(lang: Lang): Message[] | null {
+  try {
+    const raw = localStorage.getItem(CHAT_KEY);
+    if (!raw) return null; // first visit -> seeded demo
+    const saved = JSON.parse(raw) as { lang?: string; messages?: Message[] };
+    if (saved.lang !== lang || !Array.isArray(saved.messages)) return null;
+    return saved.messages.flatMap((m): Message[] => {
+      if (m.role !== 'ai') return [m];
+      if (!m.text) return []; // cut off before any text arrived
+      const units = buildUnits(m.text); // rebuild instead of trusting storage
+      return [{ ...m, units, revealed: units.length, phase: 'done' }];
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
   const { t, i18n } = useTranslation();
   const pick = usePick();
@@ -54,7 +78,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [drawer, setDrawer] = useState<{ open: boolean; cite: Cite | null }>({ open: false, cite: null });
   const [streaming, setStreaming] = useState(false);
-  const [messages, setMessages] = useState<Message[]>(() => buildSeed(pick));
+  const [messages, setMessages] = useState<Message[]>(() => loadSavedChat(lang) ?? buildSeed(pick));
 
   const threadRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -89,6 +113,17 @@ export default function App() {
     setMessages(docs.length === 0 ? [] : buildSeed(pick));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang]);
+
+  // chat: persist once each turn settles (not on every streamed chunk), so a
+  // reload restores the conversation exactly where it ended
+  useEffect(() => {
+    if (streaming) return;
+    try {
+      localStorage.setItem(CHAT_KEY, JSON.stringify({ lang, messages: messages.slice(-CHAT_MAX_MESSAGES) }));
+    } catch {
+      /* storage full or blocked - the chat just won't survive reloads */
+    }
+  }, [messages, streaming, lang]);
 
   // keep thread pinned to latest only when new messages arrive or while streaming
   const prevLenRef = useRef(messages.length);
