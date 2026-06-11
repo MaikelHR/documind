@@ -10,6 +10,7 @@ const DIRECTIONS: { id: Direction; label: string; dot: string }[] = [
   { id: 'verdigris', label: 'Verdigris', dot: '#46c98a' },
   { id: 'ember', label: 'Ember', dot: '#e58a45' },
   { id: 'cobalt', label: 'Cobalt', dot: '#5b8def' },
+  { id: 'malva', label: 'Malva', dot: '#e0b0ff' },
 ];
 const LANGS: { id: Lang; label: string }[] = [
   { id: 'es', label: 'ES' },

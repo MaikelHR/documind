@@ -1,6 +1,6 @@
 /* DocuMind - shared domain types */
 
-export type Direction = 'slate' | 'verdigris' | 'ember' | 'cobalt';
+export type Direction = 'slate' | 'verdigris' | 'ember' | 'cobalt' | 'malva';
 export type Mode = 'dark' | 'light';
 export type Lang = 'es' | 'en';
 

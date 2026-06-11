@@ -40,7 +40,7 @@ primary / English)**, **light + dark** modes, and **four** selectable color dire
   snippet in `<mark>`, flashes it, and auto-scrolls it into view.
 - **Streaming UX** - three phases (retrieval → token-by-token streaming → done) with a
   blinking cursor and a Stop control. Designed to swap 1:1 for a real streamed completion.
-- **8 themes** - 4 color directions × light/dark, implemented as CSS variables driven by
+- **10 themes** - 5 color directions × light/dark, implemented as CSS variables driven by
   `data-direction` / `data-mode` on `<html>`, persisted to `localStorage` (+ no-flash boot).
 - **Bilingual** - UI chrome via `react-i18next`; sample *data* (doc names, page content,
   snippets) resolved with a small `pick()` helper. Citation snippets are exact substrings of
